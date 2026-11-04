@@ -366,7 +366,7 @@ d := testdb.Open(t, db.Open)                              // 每个用例
 
 **为什么必须「先锁后 open」**：`db.Open` 每次都会重跑 `schema.sql`，其中包含 `ALTER TABLE` / `CREATE INDEX` 等 ACCESS EXCLUSIVE 的 DDL。共享测试库上，只要有一个包的迁移在锁外执行，它就会和另一个包正在提交的 `INSERT INTO assets(...)` 各持一把锁互相等待，PostgreSQL 判定死锁（`40P01`）——受害方通常是对方那个业务事务。2026-11 实测：`llmrec` 没进套件锁、`evidence` 先 open 后拿锁，`go test ./...` 约每 2 次红 1 次，失败点随机落在 `db`/`agent`。现在所有 DB 包的 schema 迁移都被同一把锁串行化。
 
-> 仍保留「所有包共用一个数据库 + 全局锁」：按包隔离 `search_path` 的方案评估过，但 `Manager` 等生产路径直接按 env DSN 打开连接，需要给每个进程注入不同的 DSN，且 `schema.sql` 依赖 public 下的扩展/函数，改动面大于收益。入口已收敛到 `internal/testdb`，将来要隔离只需在那里改 DSN/schema 生成。
+> **按包 schema 隔离（第二阶段）**：`testdb.Lock` 会为每个测试进程创建 `test_<包名>_<pid>`，把 `search_path` 固定到该 schema（`public` 兜底），结束时 `DROP SCHEMA ... CASCADE`。`Manager` 等生产代码按 env DSN 自开连接也不影响——`Lock` 会覆写 `ARTEX_REDTEAM_PG_DSN` / `ARTEX_PG_DSN`，后续所有连接自动落在本包 schema。于是即便将来某个包漏了套件锁，它的迁移与写入也只影响自己的 schema，不会波及其它包。套件锁仍然保留，作为第二层保险并继续串行化迁移。
 
 ---
 
