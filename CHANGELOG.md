@@ -24,6 +24,13 @@
   - `noaadapter`：40K 窗口长会话越界（随上述 pacing 修复）、溢出学习 `ParseOverflowWindow`/`learn` 无调用方（在 `Compactor.IsOverflow` 中接线）、小窗口 tier 2 已可用（边界测试改为正断言 `TestTierTwoFiresOnSmallWindows`）。
 - `norma/VENDORED.md` 同步更新差异说明与升级步骤（不再打测试标签）。
 
+### 测试
+
+#### 修复
+
+- **移除按包 schema 隔离后不再需要的「遗留任务标终态」预处理**：`server` 的用例在启动 `Manager` 前曾把共享测试库里其他包遗留的未终态任务标记为终态，以免 `NewManager` 把它们一起拉起、挤占 goal 播种额度。测试库改为按包 `search_path` 隔离后，别的包的数据在物理上已不存在，这段预处理只会误导读者以为测试依赖共享状态，现已删除（连同注释）。
+- 同步修正 README「数据库测试」一节：改写为「按包 schema 隔离 + 套件锁」，删去「共享测试库/独占」前提相关表述，并补上 `-count=20` 需要 `-timeout 45m` 的说明。
+
 ### 安全
 
 #### 修复

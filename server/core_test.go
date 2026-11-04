@@ -12,19 +12,11 @@ import (
 	"time"
 
 	"github.com/Bluestar-coder/ARTEX-RedTeam/db"
-	"github.com/Bluestar-coder/ARTEX-RedTeam/internal/testdb"
 )
 
 // TestCoreTaskLifecyclePG exercises the migrated core (tasks/exploration on PG)
 // through the real HTTP mux: create → goal nodes seeded → list → delete cascade.
 func TestCoreTaskLifecyclePG(t *testing.T) {
-	// -count / 共享库重跑时，库里会残留其它用例未终态的任务；NewManager 会把它们
-	// 全部重新拉起，占满 goal 播种所需的执行额度，本用例的新任务在 3 秒内拿不到
-	// goal 节点。套件锁保证本包独占测试库，先把遗留任务标记为终态。
-	cleanupDB := testdb.Open(t, db.Open)
-	if _, err := cleanupDB.Exec(`UPDATE tasks SET status = 'done' WHERE status NOT IN ('done','failed','timeout')`); err != nil {
-		t.Fatal(err)
-	}
 	m, err := NewManager(t.TempDir(), "", "")
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) — skipping", err)
