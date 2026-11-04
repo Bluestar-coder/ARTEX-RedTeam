@@ -10,7 +10,7 @@ Go 单体后端（内嵌 Next.js 前端）· PostgreSQL · 单二进制部署
 
 > **本仓库是 ARTEX 的独立二次开发版本**（`Bluestar-coder/ARTEX-RedTeam`），现已更名为 **ARTEX-RedTeam**，更聚焦**红队方向**：以攻击链推进和权限获取为主线，而不是以漏洞数量为产出。原始项目仓库已被原作者删除，本仓库在此代码基础上继续维护与演进，协议仍为 AGPL-3.0。
 >
-> 本仓库不沿用上游的任何发布物：Docker 镜像、Release 压缩包、演示站都不再指向原来的项目。自 v0.4.1 起，Release 压缩包与 Docker 镜像（`bluestarcoder/artex-redteam`，amd64/arm64）均由本仓库 CI 构建发布。
+> 本仓库不沿用上游的任何发布物：Docker 镜像、Release 压缩包、演示站都不再指向原来的项目。自 v0.4.1 起，Release 压缩包与 Docker 镜像（`bluestarcoder/artex-redteam`，amd64/arm64）均由本仓库 CI 构建发布；自 v0.4.2 起发布包更名为 `artex-redteam-<version>-<os>-<arch>.zip`，同时**额外发布旧名兼容包 `artex-<version>-<os>-<arch>.zip`**（包内二进制名为 `artex`），供 v0.4.1 及更早版本直接一键更新。
 
 ---
 
@@ -168,7 +168,7 @@ CGO_ENABLED=0 go build -tags embedui -o artex-redteam ./cmd/artex-redteam
 
 ### 方式五：构建跨平台 Release 压缩包
 
-`build.sh` 会先构建并嵌入前端，再使用 Go linker 去除调试信息，并将发布文件压缩为 zip。Release 模式默认生成 Linux amd64/arm64、macOS amd64/arm64 和 Windows amd64 的 zip 包：
+`build.sh` 会先构建并嵌入前端，再使用 Go linker 去除调试信息，并将发布文件压缩为 zip。Release 模式默认生成 Linux amd64/arm64、macOS amd64/arm64 和 Windows amd64 的 zip 包（每个平台同时产出 `artex-redteam-*` 新名包与 `artex-*` 旧名兼容包）：
 
 ```bash
 ./build.sh --release
@@ -199,17 +199,17 @@ ARTEX_REDTEAM_TARGETS=linux/amd64,windows/amd64 ./build.sh --release
 | 数据目录（Docker） | 宿主目录**仍是 `./data`**（不迁移、不丢流量索引），容器内挂载点改为 `/app/data-redteam` |
 | 登录用户名 | 新的 `ARTEX-RedTeam` 与旧的 `ARTEX` 都接受；登录 cookie 从 `artex_token` 改为 `artex_redteam_token`，升级后需**重新登录一次** |
 | 二进制名 | 新安装为 `artex-redteam`；`start.sh` / `start.bat` 会优先启动 `artex-redteam`，找不到再回退 `artex`，老目录无需改名 |
-| 发布包 | 新版本资产名为 `artex-redteam-<version>-<os>-<arch>.zip`。**旧版（≤0.4.x）的一键更新不认识新资产名**，从老版本升级请手动下载一次 zip 覆盖二进制 |
+| 发布包 | 新资产名为 `artex-redteam-<version>-<os>-<arch>.zip`；同时发布旧名兼容包 `artex-<version>-<os>-<arch>.zip`（包内二进制名为 `artex`）。两套包都写入 `SHA256SUMS`，因此 v0.4.1 及更早版本可以直接一键更新 |
 | 管理端口 | 默认监听从 `:8787` 改为 `127.0.0.1:8787`，compose 端口映射也改为 `127.0.0.1:8787:8787`；远程访问请显式传 `-addr :8787` 并改回端口映射，或加 VPN / 带认证的反向代理 |
 | Docker 项目 | compose 项目名取自目录名，`pgdata` 具名卷按项目名隔离；**请沿用原目录升级**，把仓库 clone/改名到新目录会得到一个新的空数据库卷 |
 
 ### 方式一：页面一键更新（推荐）
 
-一键更新从本仓库的 GitHub Releases 获取最新正式版（`v0.4.1` 起可用），按当前平台选包、校验 `SHA256SUMS` 后换装。
+一键更新从本仓库的 GitHub Releases 获取最新正式版（`v0.4.1` 起可用），按当前平台选包、校验 `SHA256SUMS` 后换装。v0.4.1 及更早的客户端会选旧名兼容包，v0.4.2 起的客户端优先选新名包。
 
 在 **系统配置** 页（侧边栏「系统配置」→ `/system/settings`）的**版本与更新**卡片里，可以直接检查并安装新版本，无需登录服务器。
 
-点「更新」后：下载当前平台的发布包 → 比对 Release 的 `SHA256SUMS` → 用 `-h` 冒烟测试新二进制 → 暂存为 `artex-redteam.new` → 程序退出，由 `start.sh` / `start.bat` 重新拉起并完成换装。页面会自动等到新版本上线后刷新。
+点「更新」后：下载当前平台的发布包 → 比对 Release 的 `SHA256SUMS` → 用 `-h` 冒烟测试新二进制 → 暂存为 `<当前二进制名>.new`（如 `artex.new` / `artex-redteam.new`）→ 程序退出，由 `start.sh` / `start.bat` 重新拉起并完成换装。页面会自动等到新版本上线后刷新。
 
 - **失败不会留下坏程序**：校验或冒烟不通过就丢弃暂存件、继续跑当前版本；换装后的新版若连续 3 次启动失败，会自动回滚到 `artex-redteam.old`（失败的那个留作 `artex-redteam.failed` 供排查）。
 - **随时可回退**：上一版本保留为 `artex-redteam.old`，卡片上有「回滚到上一版本」。注意数据库结构不会回退。

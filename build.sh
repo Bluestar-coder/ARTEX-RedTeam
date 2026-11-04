@@ -195,6 +195,21 @@ package_binary() {
   (cd "$ARTEX_REDTEAM_PACKAGE_DIR" && zip -q -r -9 "$(basename "$archive")" "$(basename "$package_root")")
   rm -rf "$package_root"
   ok "Release 压缩包：$archive"
+
+  # 旧名兼容包：v0.4.1 及更早的一键更新只认 artex-<ver>-<os>-<arch>.zip，并按
+  # 基名 "artex"/"artex.exe" 从包里取二进制。额外产出一份同字节的旧名包，让老
+  # 客户端能升到本版本；新客户端仍然优先使用 artex-redteam-*。
+  legacy_name="artex-${ARTEX_REDTEAM_BUILD_VERSION}-${goos}-${goarch}"
+  legacy_root="${ARTEX_REDTEAM_PACKAGE_DIR}/${legacy_name}"
+  legacy_archive="${ARTEX_REDTEAM_PACKAGE_DIR}/${legacy_name}.zip"
+  legacy_bin="artex"
+  [ "$goos" = "windows" ] && legacy_bin="artex.exe"
+  rm -rf "$legacy_root" "$legacy_archive"
+  mkdir -p "$legacy_root"
+  cp "$binary" "${legacy_root}/${legacy_bin}"
+  (cd "$ARTEX_REDTEAM_PACKAGE_DIR" && zip -q -9 "$(basename "$legacy_archive")" "${legacy_name}/${legacy_bin}")
+  rm -rf "$legacy_root"
+  ok "旧名兼容包：$legacy_archive"
 }
 
 build_target() {
