@@ -92,6 +92,11 @@ func TestSideUsageRecordedOnceOnConsumerCancellation(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pg.Close()
+	// llm_usage 是懒建表：生产环境由 Manager 在启动时 Ensure，直接 db.Open 的
+	// 进程（包括这个测试）需要自己确保它存在，与 db 包里的集成测试做法一致。
+	if err := pg.EnsureLLMUsageTable(); err != nil {
+		t.Fatal(err)
+	}
 	for _, early := range []bool{false, true} {
 		profile := "btw-metering-" + uuid.NewString()
 		ctx, cancel := context.WithCancel(transcript.WithSessionID(t.Context(), "exp0-btw-test"))
