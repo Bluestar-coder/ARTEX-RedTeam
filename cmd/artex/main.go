@@ -55,6 +55,7 @@ func run() int {
 		addr    = flag.String("addr", ":8787", "HTTP listen address")
 		dataDir = flag.String("data", filepath.Join(config.BaseDir(), "data"), "data directory for the traffic index, JWT key and workspaces (default: data/ next to the executable)")
 		proxy   = flag.String("proxy", "127.0.0.1:8788", "traffic recording proxy address (empty to disable)")
+		proxyGW = flag.String("proxy-pool-gateway", "127.0.0.1:8789", "proxy-pool forwarding gateway address (empty to disable 入口C)")
 	)
 	flag.Parse()
 
@@ -95,7 +96,7 @@ func run() int {
 	ctx, shutdown := shutdownContext(sigCtx)
 	defer shutdown(agent.AbortShutdown)
 
-	mgr, err := server.NewManager(*dataDir, *proxy)
+	mgr, err := server.NewManager(*dataDir, *proxy, *proxyGW)
 	if err != nil {
 		log.Fatalf("open stores: %v", err)
 	}

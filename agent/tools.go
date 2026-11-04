@@ -54,6 +54,7 @@ type ToolSet struct {
 	findingRecorder FindingRecorder
 	as              *db.AssetStore   // asset store (optional; nil = asset tools not available)
 	cs              *db.CompanyStore // company store (optional)
+	ps              *db.ProxyStore   // proxy pool store (optional; nil = list_proxies unavailable)
 	ts              *db.ExplorationStore
 	worker          string
 	taskID          int64 // PG tasks.id; 0 when unknown (tests / orchestrator cross-task reads)

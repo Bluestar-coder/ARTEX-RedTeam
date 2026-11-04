@@ -12,7 +12,7 @@ import (
 // to the actual configuration state: nothing configured vs. configured-but-not-
 // activated must read differently so the user knows what to do.
 func TestChatUnavailableReasonDistinguishesStates(t *testing.T) {
-	m, err := NewManager(t.TempDir(), "")
+	m, err := NewManager(t.TempDir(), "", "")
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) — skipping", err)
 	}
@@ -62,7 +62,7 @@ func TestChatUnavailableReasonDistinguishesStates(t *testing.T) {
 // agent even when NO global profile is active, so the send precheck stops
 // rejecting it with "LLM 未配置".
 func TestResolveChatAgentHonoursConversationProfile(t *testing.T) {
-	m, err := NewManager(t.TempDir(), "")
+	m, err := NewManager(t.TempDir(), "", "")
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) — skipping", err)
 	}

@@ -170,6 +170,21 @@ type Traffic struct {
 	// transparent-passthrough paths honor it (go-mitmproxy's getUpstreamConn),
 	// so no host escapes it. Hot-swappable at runtime via SetUpstreamProxy.
 	upstream atomic.Pointer[url.URL]
+	// poolUpstream, if set, picks an upstream proxy for a target host so recorded
+	// traffic egresses through the proxy pool (入口A). nil / returns nil = dial the
+	// target directly. Set by the server; the pool switch/selection lives there.
+	poolUpstream atomic.Pointer[func(host string) *url.URL]
+}
+
+// SetPoolUpstream installs (or clears with nil) the proxy-pool upstream resolver.
+// When set and it returns a non-nil URL for a host, recorded target traffic to
+// that host is forwarded through the returned proxy instead of dialed directly.
+func (t *Traffic) SetPoolUpstream(fn func(host string) *url.URL) {
+	if fn == nil {
+		t.poolUpstream.Store(nil)
+		return
+	}
+	t.poolUpstream.Store(&fn)
 }
 
 // Open initializes the traffic tree, blob store and SQLite index under dir.
@@ -210,15 +225,27 @@ func Open(dir, addr string) (*Traffic, error) {
 		db.Close()
 		return nil, err
 	}
-	// Upstream selection. By default (no global egress proxy set) targets are
-	// dialed DIRECTLY: go-mitmproxy's own default upstream uses
+	// Upstream selection. Priority: explicit global egress proxy (SetUpstreamProxy)
+	// → proxy pool resolver (SetPoolUpstream, per-host rotation, 入口A) → dial
+	// DIRECTLY. Direct by default because go-mitmproxy's own default upstream uses
 	// http.ProxyFromEnvironment, so an HTTP_PROXY/HTTPS_PROXY in the environment
 	// (a VPN/system proxy) would make it forward target requests through that
 	// external proxy — which can't reach the target → 502. Returning nil forces
-	// a direct dial. When a global egress proxy IS configured (SetUpstreamProxy),
-	// every captured request — intercepted AND transparently tunneled — is
-	// forwarded through it instead, so no host leaks the real source IP.
-	p.SetUpstreamProxy(func(*http.Request) (*url.URL, error) { return t.upstream.Load(), nil })
+	// a direct dial. The global proxy takes precedence: the user set it explicitly;
+	// the pool is the rotating fallback. Both the intercepted and the
+	// transparent-passthrough paths honor this (go-mitmproxy's getUpstreamConn),
+	// so no host escapes the chosen egress.
+	p.SetUpstreamProxy(func(req *http.Request) (*url.URL, error) {
+		if u := t.upstream.Load(); u != nil {
+			return u, nil
+		}
+		if fn := t.poolUpstream.Load(); fn != nil {
+			if u := (*fn)(hostOnly(req.Host)); u != nil {
+				return u, nil
+			}
+		}
+		return nil, nil
+	})
 	// Fail-open: MITM every host by default, EXCEPT ones a prior request proved we
 	// can't intercept without breaking (see maybePassthrough). Those are tunneled
 	// transparently so the request still reaches the target instead of being killed.

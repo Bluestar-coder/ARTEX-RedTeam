@@ -22,7 +22,7 @@ import (
 
 func trafficEvidenceServer(t *testing.T) (*Server, *db.RecordedFinding, func(string, string, string) *httptest.ResponseRecorder) {
 	t.Helper()
-	m, err := NewManager(t.TempDir(), "")
+	m, err := NewManager(t.TempDir(), "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

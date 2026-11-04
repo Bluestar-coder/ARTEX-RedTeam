@@ -140,7 +140,7 @@ type sideHTTPFixture struct {
 
 func newSideHTTPFixture(t *testing.T) *sideHTTPFixture {
 	t.Helper()
-	m, err := NewManager(t.TempDir(), "")
+	m, err := NewManager(t.TempDir(), "", "")
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) — skipping", err)
 	}
