@@ -8,7 +8,7 @@ AI 自主渗透测试系统（Go 后端 + Next.js 前端）
 
 > **本仓库是 ARTEX 的独立二次开发版本**（`Bluestar-coder/ARTEX-RedTeam`）。原始项目仓库已被原作者删除，本仓库在此代码基础上继续维护，协议仍为 AGPL-3.0。
 >
-> 本仓库不沿用上游的任何发布物：Docker 镜像、Release 压缩包、演示站都不再指向原来的项目。自 v0.4.0 起，Release 压缩包与 Docker 镜像（`bluestarcoder/artex`，amd64/arm64）均由本仓库 CI 构建发布。
+> 本仓库不沿用上游的任何发布物：Docker 镜像、Release 压缩包、演示站都不再指向原来的项目。自 v0.4.0 起，Release 压缩包与 Docker 镜像（`bluestarcoder/artex-redteam`，amd64/arm64）均由本仓库 CI 构建发布。
 
 ---
 
@@ -92,7 +92,7 @@ docker compose up -d --build  # 本地构建 artex 镜像 + 启动 postgres
 # → http://localhost:8787
 ```
 
-镜像默认由本仓库 `Dockerfile` 本地构建；也可直接拉取 CI 发布的镜像（`bluestarcoder/artex`，amd64/arm64）：
+镜像默认由本仓库 `Dockerfile` 本地构建；也可直接拉取 CI 发布的镜像（`bluestarcoder/artex-redteam`，amd64/arm64）：
 
 ```bash
 docker compose pull artex && docker compose up -d

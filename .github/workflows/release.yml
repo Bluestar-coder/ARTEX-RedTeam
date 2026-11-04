@@ -120,7 +120,7 @@ jobs:
       - uses: docker/metadata-action@v5
         id: meta
         with:
-          images: ${{ secrets.DOCKERHUB_USERNAME }}/artex
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/artex-redteam
           tags: |
             type=ref,event=tag
             type=raw,value=latest
