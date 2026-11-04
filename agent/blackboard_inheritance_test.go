@@ -82,12 +82,11 @@ func TestCompanyScopeAssetsReachGraphOverview(t *testing.T) {
 	if !ok {
 		t.Fatalf("coverage missing: %#v", overview["coverage"])
 	}
-	// graph_overview 在精简态势字段时删掉了 coverage.scope（范围根资产 + company
-	// 富化）；范围与公司规则改由 list_untested_assets / list_assets 查询。这里只
-	// 断言仍然保留的覆盖度量确实把 company 关联进来的资产算进了任务上下文。
-	if _, exists := coverage["scope"]; exists {
-		t.Fatalf("coverage.scope should stay removed (superseded by the list_* tools): %#v", coverage)
-	}
+	// graph_overview 在精简态势字段时有意移除了 coverage.scope（范围根资产 +
+	// company 富化），范围与公司规则改由 list_companies / list_untested_assets /
+	// list_assets 查询。这里只校验仍然保留的覆盖度量确实把 company 关联进来的
+	// 资产算进了任务上下文——不反向断言 scope 不存在，避免把一个可再评估的
+	// 设计取舍固化成测试契约。
 	if den, _ := coverage["denominator"].(int); den < 1 {
 		t.Fatalf("company-linked asset missing from coverage denominator: %#v", coverage)
 	}

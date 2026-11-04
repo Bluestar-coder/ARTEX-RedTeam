@@ -477,7 +477,7 @@ sequenceDiagram
   participant DB as 双图 + activity
 
   EV-->>P: 唤醒
-  P->>DB: 读态势(graph_overview 预取 + coverage/scope)
+  P->>DB: 读态势(graph_overview 预取 + coverage)
   P->>FR: 派 0..N 个意图(带 asset_ids)
   Note over P,FR: 大多数唤醒派 0 个——无新方向即结束
   W->>FR: claimNext 领一条意图
