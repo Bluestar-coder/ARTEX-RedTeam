@@ -1,4 +1,4 @@
-module github.com/Autumn-27/artex
+module github.com/Bluestar-coder/ARTEX-RedTeam
 
 go 1.26.3
 

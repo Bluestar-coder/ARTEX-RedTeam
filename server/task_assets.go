@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/Autumn-27/artex/db"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/db"
 )
 
 const maxTaskAssetRequestBytes = 512 << 10

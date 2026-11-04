@@ -3,7 +3,7 @@ package server
 import (
 	"testing"
 
-	"github.com/Autumn-27/artex/db"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/db"
 )
 
 // A stored catalog entry that collides with a global runtime var (e.g. a legacy
