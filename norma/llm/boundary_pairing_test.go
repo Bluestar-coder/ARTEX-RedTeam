@@ -1,5 +1,3 @@
-//go:build norma_upstream
-
 package llm
 
 import "testing"

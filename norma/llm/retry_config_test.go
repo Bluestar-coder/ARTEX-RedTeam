@@ -1,5 +1,3 @@
-//go:build norma_upstream
-
 package llm
 
 import (
@@ -74,6 +72,10 @@ func TestDoStreamHonorsConfiguredRetries(t *testing.T) {
 	cfg := Config{
 		Format: FormatOpenAI, BaseURL: srv.URL, APIKey: "k", Model: "m",
 		MaxRetries: 1, RetryInterval: time.Millisecond,
+		// doStream is the internal transport: NewProvider fills HTTPClient in
+		// before any request is made, so a test calling it directly must supply
+		// the client too.
+		HTTPClient: srv.Client(),
 	}
 	if _, err := doStream(context.Background(), cfg, srv.URL, []byte(`{}`), func(*http.Request) {}, "openai"); err == nil {
 		t.Fatal("want error after retries are exhausted")
