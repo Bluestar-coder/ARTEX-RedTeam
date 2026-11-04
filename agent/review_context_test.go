@@ -10,6 +10,7 @@ import (
 	"github.com/Bluestar-coder/ARTEX-RedTeam/db"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/guard"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/intercept"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/internal/testdb"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/norma/llm"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/norma/tool"
 )
@@ -17,15 +18,7 @@ import (
 // Real PostgreSQL + SDK hooks: Worker reviews receive the current call only.
 // Intent summaries, inherited background and prior execution are excluded.
 func TestWorkerReviewContextAcrossToolCalls(t *testing.T) {
-	dsn, _, err := db.DSN()
-	if err != nil {
-		t.Skip("no test database configured")
-	}
-	d, err := db.Open(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = d.Close() })
+	d := testdb.Open(t, db.Open)
 	expID, err := d.CreateExploration("只操作隔离测试目录", "验证创建和清理")
 	if err != nil {
 		t.Fatal(err)

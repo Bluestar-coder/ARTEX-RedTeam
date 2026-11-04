@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Bluestar-coder/ARTEX-RedTeam/internal/testdb"
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
@@ -53,6 +54,13 @@ func TestApplySchemaRetriesOnlyDeadlocks(t *testing.T) {
 
 // testDSN returns the configured DSN, skipping the test when neither the env var
 // nor a config file supplies one (DSN no longer has a built-in default).
+// openTestDB opens the shared test database through testdb.Open, which requires
+// the suite lock taken in TestMain and registers the cleanup close.
+func openTestDB(t *testing.T) *DB {
+	t.Helper()
+	return testdb.Open(t, func(dsn string) (*DB, error) { return Open(dsn) })
+}
+
 func testDSN(t *testing.T) string {
 	t.Helper()
 	dsn, _, err := DSN()
@@ -65,11 +73,7 @@ func testDSN(t *testing.T) string {
 // TestOpenSeed opens the live dev PG, applies schema, seeds, and verifies the
 // builtin agents + their variable catalog exist. Skips if PG is unreachable.
 func TestOpenSeed(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v) — skipping", err)
-	}
-	defer d.Close()
+	d := openTestDB(t)
 
 	wantAgents := len(builtinAgents)
 	var agents int
@@ -100,11 +104,7 @@ WHERE a.key = 'planner'`).Scan(&plannerVars); err != nil {
 	}
 
 	// re-open must be idempotent (no duplicate agents)
-	d2, err := Open(testDSN(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer d2.Close()
+	d2 := openTestDB(t)
 	if err := d2.QueryRow(`SELECT count(*) FROM agents WHERE builtin`).Scan(&agents); err != nil {
 		t.Fatal(err)
 	}

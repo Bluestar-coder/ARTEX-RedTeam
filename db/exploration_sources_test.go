@@ -6,11 +6,7 @@ import (
 )
 
 func TestInheritedActivityReadsRequireTerminalIntent(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v) - skipping", err)
-	}
-	defer d.Close()
+	d := openTestDB(t)
 
 	expID, err := d.CreateExploration("source activity boundary", "source activity boundary")
 	if err != nil {
@@ -89,11 +85,7 @@ func TestInheritedActivityReadsRequireTerminalIntent(t *testing.T) {
 }
 
 func TestExplorationDirectSourceReadView(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v) - skipping", err)
-	}
-	defer d.Close()
+	d := openTestDB(t)
 
 	grand, err := d.CreateTask("grand source", "grand goal", nil, 0, 0)
 	if err != nil {
@@ -311,11 +303,7 @@ func TestExplorationDirectSourceReadView(t *testing.T) {
 }
 
 func TestTaskAssetContextUsesDirectSourceScopeAndAnchors(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v) - skipping", err)
-	}
-	defer d.Close()
+	d := openTestDB(t)
 
 	grand, err := d.CreateTask("grand assets", "grand goal", nil, 0, 0)
 	if err != nil {

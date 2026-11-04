@@ -10,11 +10,7 @@ import (
 // columns at once. Also pins the "empty api key on update keeps the row usable"
 // path, since that UPDATE has its own parameter numbering.
 func TestProfileRetryRoundTrip(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v) — skipping", err)
-	}
-	defer d.Close()
+	d := openTestDB(t)
 
 	want := RetryOverride{
 		Connect: RetryRule{Attempts: 5, IntervalMS: 2000},
@@ -67,11 +63,7 @@ func TestProfileRetryRoundTrip(t *testing.T) {
 // Out-of-range values are clamped on the way in, so the DB CHECK constraint is
 // never what the user hears about.
 func TestProfileRetryClampedOnSave(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v) — skipping", err)
-	}
-	defer d.Close()
+	d := openTestDB(t)
 
 	id, err := d.SaveProfile(&LLMProfile{
 		Name: "t-retry-clamp", Format: "openai", Model: "m", APIKey: "k",
@@ -93,11 +85,7 @@ func TestProfileRetryClampedOnSave(t *testing.T) {
 // The global policy round-trips through settings, and an unset key reads back as
 // "everything on its built-in default".
 func TestLLMRetryPolicyRoundTrip(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v) — skipping", err)
-	}
-	defer d.Close()
+	d := openTestDB(t)
 
 	before, hadBefore, err := d.GetSetting(settingLLMRetryPolicy)
 	if err != nil {

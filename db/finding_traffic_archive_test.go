@@ -15,15 +15,11 @@ func TestFindingEvidenceLockNamespace(t *testing.T) {
 }
 
 func TestFindingTrafficLegacyArchiveDefaults(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
+	d := openTestDB(t)
+	if err := d.EnsureLLMRecordsTable(); err != nil {
 		t.Fatal(err)
 	}
-	defer d.Close()
-	if err = d.EnsureLLMRecordsTable(); err != nil {
-		t.Fatal(err)
-	}
-	if err = d.EnsureLLMUsageTable(); err != nil {
+	if err := d.EnsureLLMUsageTable(); err != nil {
 		t.Fatal(err)
 	}
 	for _, version := range []int{1, 2} {

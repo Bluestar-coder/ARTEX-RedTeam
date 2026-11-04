@@ -3,11 +3,7 @@ package db
 import "testing"
 
 func TestToolUsageLedger(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v) - skipping", err)
-	}
-	defer d.Close()
+	d := openTestDB(t)
 
 	const (
 		toolA = "zz_test_tool_usage_a"

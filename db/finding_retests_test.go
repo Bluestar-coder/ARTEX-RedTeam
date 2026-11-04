@@ -11,10 +11,7 @@ import (
 
 func retestDB(t *testing.T) (*DB, int64) {
 	t.Helper()
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Fatalf("open test database: %v", err)
-	}
+	d := openTestDB(t)
 	fid, err := d.AddFinding(0, 0, "retest-test", "测试漏洞", "high", "original summary", "original evidence", "worker", nil)
 	if err != nil {
 		t.Fatal(err)

@@ -7,10 +7,7 @@ import (
 )
 
 func TestInterceptExecutionNavigation(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Fatal(err)
-	}
+	d := openTestDB(t)
 	t.Cleanup(func() { _ = d.Close() })
 	approval := func(conv int64, task, id string, exact bool) int64 {
 		t.Helper()

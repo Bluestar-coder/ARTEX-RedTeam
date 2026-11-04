@@ -8,6 +8,7 @@ import (
 
 	"github.com/Bluestar-coder/ARTEX-RedTeam/agent"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/db"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/internal/testdb"
 	actool "github.com/Bluestar-coder/ARTEX-RedTeam/norma/tool"
 )
 
@@ -26,15 +27,7 @@ func hasSkillTool(tools []actool.CoreTool) bool {
 // ToolAugment hook. Skills live on disk under skillDir; visibility is a per-agent
 // (agent × skill_name) row keyed by the skill's directory name.
 func TestAssembleVisibleSkill(t *testing.T) {
-	dsn, _, err := db.DSN()
-	if err != nil {
-		t.Skipf("no database config (%v) — skipping", err)
-	}
-	pg, err := db.Open(dsn)
-	if err != nil {
-		t.Skipf("postgres unavailable (%v) — skipping", err)
-	}
-	defer pg.Close()
+	pg := testdb.Open(t, db.Open)
 
 	// Filesystem skill fixture: <skillDir>/t-assemble/SKILL.md. The directory name
 	// (t-assemble) is the visibility key matched against AgentSkillNames.

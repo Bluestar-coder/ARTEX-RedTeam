@@ -13,11 +13,7 @@ import (
 // Deliberately does NOT touch is_default — flipping the active profile would be a
 // side effect on the shared dev database.
 func TestPoolProfilesOrder(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v) — skipping", err)
-	}
-	defer d.Close()
+	d := openTestDB(t)
 
 	mk := func(name string, priority int, exclude bool, key string) int64 {
 		id, err := d.SaveProfile(&LLMProfile{
@@ -65,11 +61,7 @@ func TestDeleteProfileContextHonorsCancellation(t *testing.T) {
 }
 
 func TestConfigStores(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v) — skipping", err)
-	}
-	defer d.Close()
+	d := openTestDB(t)
 
 	// LLM profile: save, active, key never serialized
 	pid, err := d.SaveProfile(&LLMProfile{Name: "t-default", Format: "openai", Model: "gpt-x", APIKey: "secret123"})

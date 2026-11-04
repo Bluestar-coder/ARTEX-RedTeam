@@ -39,11 +39,7 @@ func gone(t *testing.T, es *ExplorationStore, id int64) bool {
 
 // TestSoftDeleteIntent 假删除置 deleted + delete_reason,保留节点。
 func TestSoftDeleteIntent(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v) — skipping", err)
-	}
-	defer d.Close()
+	d := openTestDB(t)
 	expID, err := d.CreateExploration("soft delete", "假删除")
 	if err != nil {
 		t.Fatal(err)
@@ -86,11 +82,7 @@ func TestSoftDeleteIntent(t *testing.T) {
 
 // TestHardDeleteCascadesExclusiveDescendants 真删除沿链路级联删除独占子孙到叶子。
 func TestHardDeleteCascadesExclusiveDescendants(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v) — skipping", err)
-	}
-	defer d.Close()
+	d := openTestDB(t)
 	expID, err := d.CreateExploration("hard cascade", "级联删除")
 	if err != nil {
 		t.Fatal(err)
@@ -123,11 +115,7 @@ func TestHardDeleteCascadesExclusiveDescendants(t *testing.T) {
 
 // TestHardDeletePreservesSharedAndGoal 真删除保留共享子孙(还有其它父)与目标。
 func TestHardDeletePreservesSharedAndGoal(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v) — skipping", err)
-	}
-	defer d.Close()
+	d := openTestDB(t)
 	expID, err := d.CreateExploration("hard preserve", "保留共享/目标")
 	if err != nil {
 		t.Fatal(err)

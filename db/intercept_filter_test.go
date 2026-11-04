@@ -6,10 +6,7 @@ import (
 )
 
 func TestInterceptApprovalFilters(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Fatal(err)
-	}
+	d := openTestDB(t)
 	t.Cleanup(func() { _ = d.Close() })
 	scope := "approval-filter-" + t.Name()
 	t.Cleanup(func() { _, _ = d.Exec(`DELETE FROM intercept_pending WHERE task_id IN ($1,$2)`, scope, scope+"-other") })

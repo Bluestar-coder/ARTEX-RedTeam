@@ -8,6 +8,7 @@ import (
 	"github.com/Bluestar-coder/ARTEX-RedTeam/db"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/guard"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/intercept"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/internal/testdb"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/norma/agentcore"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/norma/llm"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/norma/permission"
@@ -17,15 +18,7 @@ import (
 // Exercise the actual SDK event -> hook -> execution -> result path. No real
 // model or command is used; the probe tool only returns a fixed string.
 func TestCaptureApprovalLifecycle(t *testing.T) {
-	dsn, _, err := db.DSN()
-	if err != nil {
-		t.Skip("no test database configured")
-	}
-	d, err := db.Open(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = d.Close() })
+	d := testdb.Open(t, db.Open)
 	ic := intercept.New(d)
 	priorTools, err := ic.GetEnabledTools()
 	if err != nil {

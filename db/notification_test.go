@@ -15,10 +15,7 @@ import (
 
 func notifyTestDB(t *testing.T) *DB {
 	t.Helper()
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v) — skipping", err)
-	}
+	d := openTestDB(t)
 	t.Cleanup(func() { d.Close() })
 	return d
 }
@@ -155,6 +152,18 @@ func TestFanOutRoutesEventsByFilter(t *testing.T) {
 	all := newTestChannel(t, d, notify.KindDingTalk, NotifyModeRealtime, `{}`)
 	onlyCritical := newTestChannel(t, d, notify.KindDingTalk, NotifyModeRealtime, `{"min_severity":"critical"}`)
 	sqlOnly := newTestChannel(t, d, notify.KindDingTalk, NotifyModeRealtime, `{"vulnclass_include":["SQL"]}`)
+
+	// 先排空其它用例遗留的待分派事件：FanOutPendingEvents 按 limit 处理，遗留
+	// backlog 会先占满名额，本用例新建的事件就轮不到分派（-count=20 时必现）。
+	for {
+		n, _, err := d.FanOutPendingEvents(ctx, 500)
+		if err != nil {
+			t.Fatalf("排空遗留事件失败: %v", err)
+		}
+		if n == 0 {
+			break
+		}
+	}
 
 	highSQL := addTestEvent(t, d, notify.EventFindingCreated, 1001, notify.Snapshot{Severity: "high", VulnClass: "SQL注入"})
 	lowXSS := addTestEvent(t, d, notify.EventFindingCreated, 1002, notify.Snapshot{Severity: "low", VulnClass: "XSS"})

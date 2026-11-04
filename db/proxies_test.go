@@ -73,11 +73,7 @@ func TestProxyMasked(t *testing.T) {
 // TestProxyStoreLifecycle exercises import de-dup, health update + auto-disable,
 // per-host sticky selection, and trusted-only filtering against dev PG.
 func TestProxyStoreLifecycle(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v) — skipping", err)
-	}
-	defer d.Close()
+	d := openTestDB(t)
 	ps := d.Proxies()
 
 	// Unique host octet per run so parallel/repeat runs don't collide.
@@ -190,11 +186,7 @@ func TestProxyStoreLifecycle(t *testing.T) {
 
 // TestProxySourceToggle covers source enable persistence + fetch stamping.
 func TestProxySourceToggle(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v) — skipping", err)
-	}
-	defer d.Close()
+	d := openTestDB(t)
 	ps := d.Proxies()
 
 	name := fmt.Sprintf("unittest-source-%d", time.Now().UnixNano())

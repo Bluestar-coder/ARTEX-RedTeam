@@ -121,11 +121,7 @@ func TestTaskArchiveFormatCompatibility(t *testing.T) {
 }
 
 func TestTaskArchiveDatabaseRoundTrip(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v) — skipping", err)
-	}
-	defer d.Close()
+	d := openTestDB(t)
 	if err := d.EnsureLLMRecordsTable(); err != nil {
 		t.Fatal(err)
 	}
@@ -333,11 +329,7 @@ VALUES($1,$2,0,'quota_exhausted','balance exhausted',$3,$4,$3)`, task.ID, llmPro
 }
 
 func TestTaskArchiveBlockersIgnoreQueuedDependents(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v) — skipping", err)
-	}
-	defer d.Close()
+	d := openTestDB(t)
 	source, err := d.CreateTaskWithOptions("archive blocker source", "source", TaskCreateOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -378,11 +370,7 @@ func TestTaskArchiveBlockersIgnoreQueuedDependents(t *testing.T) {
 }
 
 func TestRecoverInterruptedArchiveRequiresManualRetry(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v) — skipping", err)
-	}
-	defer d.Close()
+	d := openTestDB(t)
 	task, err := d.CreateTaskWithOptions("interrupted archive", "must not restart automatically", TaskCreateOptions{})
 	if err != nil {
 		t.Fatal(err)

@@ -12,10 +12,7 @@ import (
 // testSetup opens a DB and returns both stores. Skips if no PG.
 func testSetup(t *testing.T) (*DB, *AssetStore, *CompanyStore) {
 	t.Helper()
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v)", err)
-	}
+	d := openTestDB(t)
 	return d, d.Assets(), d.Companies()
 }
 

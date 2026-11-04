@@ -3,10 +3,10 @@ package llmrec
 import (
 	"context"
 	"iter"
-	"os"
 	"testing"
 
 	"github.com/Bluestar-coder/ARTEX-RedTeam/db"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/internal/testdb"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/norma/llm"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/norma/transcript"
 	"github.com/google/uuid"
@@ -83,15 +83,7 @@ func (meteredStreamProvider) Stream(context.Context, llm.CompletionRequest) iter
 }
 
 func TestSideUsageRecordedOnceOnConsumerCancellation(t *testing.T) {
-	dsn := testPGDSN()
-	if dsn == "" {
-		t.Skip("requires an isolated ARTEX_REDTEAM_PG_DSN (or legacy ARTEX_PG_DSN)")
-	}
-	pg, err := db.Open(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pg.Close()
+	pg := testdb.Open(t, db.Open)
 	// llm_usage 是懒建表：生产环境由 Manager 在启动时 Ensure，直接 db.Open 的
 	// 进程（包括这个测试）需要自己确保它存在，与 db 包里的集成测试做法一致。
 	if err := pg.EnsureLLMUsageTable(); err != nil {
@@ -113,7 +105,7 @@ func TestSideUsageRecordedOnceOnConsumerCancellation(t *testing.T) {
 		cancel()
 		var count, input, output int
 		var worker, status string
-		err = pg.QueryRow(`SELECT count(*),max(input_tokens),max(output_tokens),max(worker),max(status)
+		err := pg.QueryRow(`SELECT count(*),max(input_tokens),max(output_tokens),max(worker),max(status)
 FROM llm_usage WHERE profile_name=$1`, profile).Scan(&count, &input, &output, &worker, &status)
 		_, _ = pg.Exec(`DELETE FROM llm_usage WHERE profile_name=$1`, profile)
 		if err != nil {
@@ -127,13 +119,4 @@ FROM llm_usage WHERE profile_name=$1`, profile).Scan(&count, &input, &output, &w
 			t.Fatalf("early=%v: count=%d usage=%d/%d worker=%q status=%q", early, count, input, output, worker, status)
 		}
 	}
-}
-
-// testPGDSN resolves the integration-test database from the new env name with
-// the pre-rename one as a fallback.
-func testPGDSN() string {
-	if v := os.Getenv("ARTEX_REDTEAM_PG_DSN"); v != "" {
-		return v
-	}
-	return os.Getenv("ARTEX_PG_DSN")
 }

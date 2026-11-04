@@ -15,11 +15,7 @@ func cleanupCompany(d *DB, id int64) {
 }
 
 func TestCompanyUpsertAndGet(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v)", err)
-	}
-	defer d.Close()
+	d := openTestDB(t)
 	cs := d.Companies()
 
 	id, created, err := cs.UpsertCompany("Test Corp", "https://example.com/logo.png")
@@ -62,11 +58,7 @@ func TestCompanyUpsertAndGet(t *testing.T) {
 }
 
 func TestCreateCompanyWithScopeRejectsNormalizedDuplicate(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v)", err)
-	}
-	defer d.Close()
+	d := openTestDB(t)
 	cs := d.Companies()
 
 	stamp := time.Now().UnixNano()
@@ -101,15 +93,11 @@ func TestCreateCompanyWithScopeRejectsNormalizedDuplicate(t *testing.T) {
 }
 
 func TestCreateCompanyWithScopeRollsBackOnScopeWriteFailure(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v)", err)
-	}
-	defer d.Close()
+	d := openTestDB(t)
 	cs := d.Companies()
 
 	name := fmt.Sprintf("Atomic Create %d", time.Now().UnixNano())
-	_, _, _, _, _, err = cs.CreateCompanyWithScope(name, "", []ScopeInput{
+	_, _, _, _, _, err := cs.CreateCompanyWithScope(name, "", []ScopeInput{
 		{Kind: "keyword", Value: "invalid\x00postgres-text"},
 	}, "test")
 	if err == nil {
@@ -126,11 +114,7 @@ func TestCreateCompanyWithScopeRollsBackOnScopeWriteFailure(t *testing.T) {
 }
 
 func TestCompanyScope(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v)", err)
-	}
-	defer d.Close()
+	d := openTestDB(t)
 	cs := d.Companies()
 
 	id, _, err := cs.UpsertCompany("ScopeTestCorp", "")
@@ -164,11 +148,7 @@ func TestCompanyScope(t *testing.T) {
 }
 
 func TestCompanyScopeInvalid(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v)", err)
-	}
-	defer d.Close()
+	d := openTestDB(t)
 	cs := d.Companies()
 
 	id, _, err := cs.UpsertCompany("InvalidScopeCorp", "")
@@ -193,11 +173,7 @@ func TestCompanyScopeInvalid(t *testing.T) {
 }
 
 func TestResolveCompany(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v)", err)
-	}
-	defer d.Close()
+	d := openTestDB(t)
 	cs := d.Companies()
 
 	id, _, err := cs.UpsertCompany("ResolveCorp", "")
@@ -234,11 +210,7 @@ func TestResolveCompany(t *testing.T) {
 }
 
 func TestUpdateScope(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v)", err)
-	}
-	defer d.Close()
+	d := openTestDB(t)
 	cs := d.Companies()
 
 	id, _, err := cs.UpsertCompany("UpdateScopeCorp", "")
@@ -279,11 +251,7 @@ func TestUpdateScope(t *testing.T) {
 }
 
 func TestUpdateScopeRollsBackOnInsertFailure(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v)", err)
-	}
-	defer d.Close()
+	d := openTestDB(t)
 	cs := d.Companies()
 
 	name := fmt.Sprintf("Atomic Scope Update %d", time.Now().UnixNano())
@@ -314,11 +282,7 @@ func TestUpdateScopeRollsBackOnInsertFailure(t *testing.T) {
 }
 
 func TestDeleteCompany(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v)", err)
-	}
-	defer d.Close()
+	d := openTestDB(t)
 	cs := d.Companies()
 
 	id, _, err := cs.UpsertCompany("DeleteMeCorp", "")
@@ -342,11 +306,7 @@ func TestDeleteCompany(t *testing.T) {
 }
 
 func TestDeleteCompanyWithAssetsDeletesBoth(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v)", err)
-	}
-	defer d.Close()
+	d := openTestDB(t)
 	cs := d.Companies()
 
 	stamp := time.Now().UnixNano()
@@ -389,11 +349,7 @@ RETURNING id`, domain, id).Scan(&assetID); err != nil {
 }
 
 func TestRecomputeAttribution(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v)", err)
-	}
-	defer d.Close()
+	d := openTestDB(t)
 	cs := d.Companies()
 	as := d.Assets()
 
@@ -431,11 +387,7 @@ func TestRecomputeAttribution(t *testing.T) {
 }
 
 func TestListCompanies(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v)", err)
-	}
-	defer d.Close()
+	d := openTestDB(t)
 	cs := d.Companies()
 
 	id, _, err := cs.UpsertCompany("ListTestCorp", "")

@@ -10,11 +10,7 @@ import (
 // 因为数据库报错而失效，也可能被并发请求插队（bcrypt 要跑几十毫秒），所以"仅首次
 // 可设"的保证必须落在主键约束上，而不是上层的 if 判断。
 func TestInsertSettingIfAbsentDoesNotOverwrite(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v)", err)
-	}
-	defer d.Close()
+	d := openTestDB(t)
 
 	// 用测试专属 key，绝不碰开发库里真实的 auth.password_hash。
 	key := fmt.Sprintf("test.insert_if_absent.%d", time.Now().UnixNano())

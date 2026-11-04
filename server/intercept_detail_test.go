@@ -10,18 +10,11 @@ import (
 
 	"github.com/Bluestar-coder/ARTEX-RedTeam/db"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/intercept"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/internal/testdb"
 )
 
 func TestInterceptDetailHTTP(t *testing.T) {
-	dsn, _, err := db.DSN()
-	if err != nil {
-		t.Skip("no test database configured")
-	}
-	d, err := db.Open(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = d.Close() })
+	d := testdb.Open(t, db.Open)
 	// Exercise the authenticated HTTP surface without starting unrelated task
 	// schedulers or mutating the process-global tool assembly used by other tests.
 	m := &Manager{pg: d, interceptor: intercept.New(d)}

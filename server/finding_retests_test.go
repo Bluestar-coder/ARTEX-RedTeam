@@ -17,6 +17,7 @@ import (
 	"github.com/Bluestar-coder/ARTEX-RedTeam/agent"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/db"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/intercept"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/internal/testdb"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/norma/llm"
 	actool "github.com/Bluestar-coder/ARTEX-RedTeam/norma/tool"
 )
@@ -36,14 +37,7 @@ func (p retestProvider) Stream(context.Context, llm.CompletionRequest) iter.Seq2
 
 func newRetestServer(t *testing.T) (*Server, int64) {
 	t.Helper()
-	dsn, _, err := db.DSN()
-	if err != nil {
-		t.Skip("test postgres not configured")
-	}
-	pg, err := db.Open(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
+	pg := testdb.Open(t, db.Open)
 	td := t.TempDir()
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Server{ctx: ctx, m: &Manager{pg: pg, dir: td, tasks: map[string]*Task{}},

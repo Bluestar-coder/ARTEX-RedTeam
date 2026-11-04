@@ -6,11 +6,7 @@ import (
 )
 
 func TestExplorationFlow(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v) — skipping", err)
-	}
-	defer d.Close()
+	d := openTestDB(t)
 
 	expID, err := d.CreateExploration("test", "拿下测试目标")
 	if err != nil {
@@ -117,11 +113,7 @@ func TestExplorationFlow(t *testing.T) {
 }
 
 func TestIntentPauseResumeAndCancelCleanup(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v) — skipping", err)
-	}
-	defer d.Close()
+	d := openTestDB(t)
 
 	expID, err := d.CreateExploration("test", "worker control cleanup")
 	if err != nil {
@@ -250,11 +242,7 @@ func TestIntentPauseResumeAndCancelCleanup(t *testing.T) {
 // TestNodesPageQueryMatchesID verifies the 播报板 search filters on node id (both
 // the bare number and the「#id」form the UI shows) in addition to payload/origin.
 func TestNodesPageQueryMatchesID(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v) — skipping", err)
-	}
-	defer d.Close()
+	d := openTestDB(t)
 
 	expID, err := d.CreateExploration("test", "id 搜索")
 	if err != nil {

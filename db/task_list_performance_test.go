@@ -7,11 +7,7 @@ import (
 )
 
 func TestListTasksBulkHydratesTaskContext(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v) - skipping", err)
-	}
-	defer d.Close()
+	d := openTestDB(t)
 
 	stamp := time.Now().UnixNano()
 	profileID, err := d.SaveProfile(&LLMProfile{
@@ -68,11 +64,7 @@ func TestListTasksBulkHydratesTaskContext(t *testing.T) {
 }
 
 func TestTaskListMetricsAll(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v) - skipping", err)
-	}
-	defer d.Close()
+	d := openTestDB(t)
 
 	task, err := d.CreateTask("task-list-metrics", "goal", nil, 0, 0)
 	if err != nil {

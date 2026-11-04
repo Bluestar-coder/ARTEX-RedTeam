@@ -7,6 +7,7 @@ import (
 
 	"github.com/Bluestar-coder/ARTEX-RedTeam/agent"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/db"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/internal/testdb"
 	actool "github.com/Bluestar-coder/ARTEX-RedTeam/norma/tool"
 )
 
@@ -22,15 +23,7 @@ func names(tools []actool.CoreTool) map[string]actool.CoreTool {
 // catalog, ToolResolve keeps record_fact for worker but drops it for planner (not
 // bound), and an edited description + injected default flow through.
 func TestWireTools(t *testing.T) {
-	dsn, _, err := db.DSN()
-	if err != nil {
-		t.Skipf("no database config (%v) — skipping", err)
-	}
-	pg, err := db.Open(dsn)
-	if err != nil {
-		t.Skipf("postgres unavailable (%v) — skipping", err)
-	}
-	defer pg.Close()
+	pg := testdb.Open(t, db.Open)
 
 	wireTools(pg, nil) // nil domainReg: test only covers filter/decoration, not injection
 	t.Cleanup(func() { agent.ToolResolve = nil })

@@ -7,10 +7,7 @@ import "testing"
 // and an update must not drop them. A miscounted column list silently shifts
 // every later Scan target, so this is the test that catches it.
 func TestProfileMaxTokensRoundTrip(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v) — skipping", err)
-	}
+	d := openTestDB(t)
 	// Close via Cleanup, registered FIRST so it runs LAST: cleanups are LIFO, and a
 	// plain `defer d.Close()` would fire before them — the row-deleting cleanups
 	// would then run against a closed pool and silently leave test rows behind.
@@ -75,10 +72,7 @@ func TestProfileMaxTokensRoundTrip(t *testing.T) {
 // A profile saved without touching the new fields must read back as "no cap,
 // classic field name" — the pre-feature behaviour old rows also get.
 func TestProfileMaxTokensDefaults(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v) — skipping", err)
-	}
+	d := openTestDB(t)
 	// Close via Cleanup, registered FIRST so it runs LAST: cleanups are LIFO, and a
 	// plain `defer d.Close()` would fire before them — the row-deleting cleanups
 	// would then run against a closed pool and silently leave test rows behind.

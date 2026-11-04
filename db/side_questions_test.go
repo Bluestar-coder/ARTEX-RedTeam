@@ -15,10 +15,7 @@ import (
 
 func sideFixture(t *testing.T) (*DB, sidequestion.Snapshot) {
 	t.Helper()
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Fatal(err)
-	}
+	d := openTestDB(t)
 	t.Cleanup(func() { d.Close() })
 	c, err := d.CreateConversation("mainagent", "side persistence", nil)
 	if err != nil {
@@ -320,11 +317,7 @@ func TestSideClearLateWritersAndDeletedParent(t *testing.T) {
 func TestSideTaskArchiveVersions(t *testing.T) {
 	for _, version := range []int{1, 2, 3} {
 		t.Run(fmt.Sprint(version), func(t *testing.T) {
-			d, err := Open(testDSN(t))
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer d.Close()
+			d := openTestDB(t)
 			if err := d.EnsureLLMRecordsTable(); err != nil {
 				t.Fatal(err)
 			}

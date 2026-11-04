@@ -15,20 +15,13 @@ import (
 	"time"
 
 	"github.com/Bluestar-coder/ARTEX-RedTeam/db"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/internal/testdb"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/traffic"
 )
 
 func evidenceFixture(t *testing.T) (*Store, db.RecordFindingInput, string) {
 	t.Helper()
-	dsn := testPGDSN()
-	if dsn == "" {
-		t.Skip("ARTEX_REDTEAM_PG_DSN (or legacy ARTEX_PG_DSN) is required for evidence integration tests")
-	}
-	pg, err := db.Open(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { pg.Close() })
+	pg := testdb.Open(t, db.Open)
 	task, err := pg.CreateTask("evidence integration "+t.Name(), "local fixtures", nil, 0, 0)
 	if err != nil {
 		t.Fatal(err)

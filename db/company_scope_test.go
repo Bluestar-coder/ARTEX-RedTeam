@@ -229,10 +229,7 @@ func TestParseStructuredCompanyScope(t *testing.T) {
 }
 
 func TestCompanyICPAttribution(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v) — skipping", err)
-	}
+	d := openTestDB(t)
 	// 关连接必须走 t.Cleanup 且**注册在清理之前**：t.Cleanup 是后进先出，
 	// 先注册关闭 → 关闭最后执行，下面的数据清理才连得上库。
 	// 原先这里是 `defer d.Close()`：defer 在函数返回时先跑，t.Cleanup 在那之后
@@ -314,10 +311,7 @@ func TestCompanyICPAttribution(t *testing.T) {
 // backfill of a pre-existing asset, CIDR + domain-suffix matching, and that
 // out-of-scope assets stay unattributed.
 func TestCompanyScopeAttribution(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v) — skipping", err)
-	}
+	d := openTestDB(t)
 	as := d.Assets()
 	cs := d.Companies()
 
@@ -334,14 +328,21 @@ func TestCompanyScopeAttribution(t *testing.T) {
 	uniq := startMax + 1
 	root := fmt.Sprintf("scopetest%d.com", uniq)
 	sub := "api." + root
-	ipIn := "198.51.100.9"
-	ipOut := "203.0.113.9"
+	// 每个用例实例用独立地址段：固定 TEST-NET 会和库里遗留公司/历史运行的范围
+	// 撞车，attribution 取先命中的公司，-count 重复跑就会串到旧 company_id。
+	seg := uniq % 60000
+	ipIn := fmt.Sprintf("198.18.%d.%d", (seg/250)%250, seg%250)
+	ipOut := fmt.Sprintf("198.19.%d.%d", (seg/250)%250, seg%250)
+	ipInCIDR := ipIn + "/32"
 	outDomain := fmt.Sprintf("other%d.net", uniq)
 
 	cid, _, err := cs.UpsertCompany(fmt.Sprintf("ScopeCo %d", uniq), "")
 	if err != nil {
 		t.Fatalf("UpsertCompany: %v", err)
 	}
+	// 必须删掉本用例建的公司：它的 CIDR 范围是固定地址段，留在库里会让下一次
+	// -count 运行的新公司匹配到旧 company_id（attribution 取先命中的公司）。
+	t.Cleanup(func() { cleanupCompany(d, cid) })
 
 	// a pre-existing asset (inserted BEFORE any scope) — must be back-filled.
 	preID, err := as.UpsertSubdomain(UpsertSubdomainReq{Domain: sub})
@@ -354,7 +355,7 @@ func TestCompanyScopeAttribution(t *testing.T) {
 		t.Fatalf("pre-scope asset should be unattributed, got %v", *preCompanyID)
 	}
 
-	cs.AddScope(cid, []string{root, "198.51.100.0/24"}, "unit test")
+	cs.AddScope(cid, []string{root, ipInCIDR}, "unit test")
 
 	mustCid := func(id int64, want int64, label string) {
 		var cID *int64

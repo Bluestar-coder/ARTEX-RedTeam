@@ -49,11 +49,7 @@ func nodeByKey(tree *FindingAssetTree, key string) *FindingAssetNode {
 // finding stay out, and a finding whose asset row is gone lands in the
 // unassigned bucket.
 func TestBuildFindingAssetTree(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v) — skipping", err)
-	}
-	defer d.Close()
+	d := openTestDB(t)
 
 	tk, err := d.CreateTask("资产树测试", "目标", nil, 0, 0)
 	if err != nil {
@@ -155,11 +151,7 @@ func TestBuildFindingAssetTree(t *testing.T) {
 // TestFindingAssetScopeFilter verifies选中一个节点 narrows the findings list to
 // that node's whole subtree, and that the unassigned sentinel works too.
 func TestFindingAssetScopeFilter(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v) — skipping", err)
-	}
-	defer d.Close()
+	d := openTestDB(t)
 
 	tk, err := d.CreateTask("资产筛选测试", "目标", nil, 0, 0)
 	if err != nil {

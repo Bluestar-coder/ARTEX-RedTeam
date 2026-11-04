@@ -13,11 +13,7 @@ import (
 // TestDeleteFinding verifies删除漏洞 removes both the findings row and its
 // originating exploration node (kind='finding').
 func TestDeleteFinding(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v) — skipping", err)
-	}
-	defer d.Close()
+	d := openTestDB(t)
 
 	tk, err := d.CreateTask("删除漏洞测试", "目标", nil, 0, 0)
 	if err != nil {
@@ -62,11 +58,7 @@ func TestDeleteFinding(t *testing.T) {
 // FindingStats against the live dev PG. It tags its rows with a unique vulnclass
 // so assertions are isolated from any pre-existing data, and cleans up after.
 func TestFindingsPageAndStats(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v) — skipping", err)
-	}
-	defer d.Close()
+	d := openTestDB(t)
 
 	const vc = "__test_vc_pagination__"
 	// clean any leftovers from a prior aborted run, and clean up on exit
@@ -217,11 +209,7 @@ func TestFindingsPageAndStats(t *testing.T) {
 }
 
 func TestListFindingsPageUsesStableIDTieBreaker(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v) — skipping", err)
-	}
-	defer d.Close()
+	d := openTestDB(t)
 
 	vc := fmt.Sprintf("__test_finding_stable_page_%d__", time.Now().UnixNano())
 	defer d.Exec(`DELETE FROM findings WHERE vulnclass=$1`, vc)
@@ -265,11 +253,7 @@ func TestListFindingsPageUsesStableIDTieBreaker(t *testing.T) {
 }
 
 func TestFindingGroupsAndUnassignedPaging(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v) — skipping", err)
-	}
-	defer d.Close()
+	d := openTestDB(t)
 
 	vc := fmt.Sprintf("__test_finding_groups_%d__", time.Now().UnixNano())
 	cleanupFindings := func() { _, _ = d.Exec(`DELETE FROM findings WHERE vulnclass=$1`, vc) }
@@ -409,11 +393,7 @@ func TestFindingGroupsAndUnassignedPaging(t *testing.T) {
 }
 
 func TestAddFindingFollowUpIntent(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v) — skipping", err)
-	}
-	defer d.Close()
+	d := openTestDB(t)
 
 	task, err := d.CreateTask("finding follow-up", "goal", nil, 0, 0)
 	if err != nil {

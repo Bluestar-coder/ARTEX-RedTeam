@@ -9,10 +9,7 @@ import (
 )
 
 func TestInterceptDetails(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Fatal(err)
-	}
+	d := openTestDB(t)
 	t.Cleanup(func() { _ = d.Close() })
 	create := func(t *testing.T, audit *InterceptAudit) int64 {
 		t.Helper()

@@ -9,11 +9,7 @@ import (
 // PG on a table stripped back to its pre-upgrade shape, inside a transaction
 // that is always rolled back — PG does transactional DDL, so nothing persists.
 func TestLLMRecordsMigrateAddsRawColumnsToOldTable(t *testing.T) {
-	d, err := Open(testDSN(t))
-	if err != nil {
-		t.Skipf("postgres unavailable (%v) — skipping", err)
-	}
-	defer d.Close()
+	d := openTestDB(t)
 	if err := d.EnsureLLMRecordsTable(); err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
