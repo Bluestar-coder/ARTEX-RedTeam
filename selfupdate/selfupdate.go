@@ -1,4 +1,4 @@
-// Package selfupdate implements ARTEX 的页面一键更新：从 GitHub Release 拉取新版
+// Package selfupdate implements ARTEX-RedTeam 的页面一键更新：从 GitHub Release 拉取新版
 // 二进制、校验、暂存，并在下次启动时原子换装。
 //
 // 整体分工（见 start.sh / start.bat）：
@@ -42,11 +42,11 @@ const maxAttempts = 3
 // 别处，换装逻辑直接失效。
 type Paths struct {
 	Dir     string // 可执行文件所在目录
-	Current string // 当前运行的二进制        artex      / artex.exe
-	New     string // 暂存的新版本            artex.new  / artex.new.exe
-	Sum     string // 新版本的 sha256（hex）  artex.new.sha256 / artex.new.exe.sha256
-	Old     string // 换装前备份的旧版本      artex.old  / artex.old.exe
-	Marker  string // 升级状态标记            artex.upgrade.json
+	Current string // 当前运行的二进制        artex-redteam      / artex-redteam.exe
+	New     string // 暂存的新版本            artex-redteam.new  / artex-redteam.new.exe
+	Sum     string // 新版本的 sha256（hex）  artex-redteam.new.sha256 / artex-redteam.new.exe.sha256
+	Old     string // 换装前备份的旧版本      artex-redteam.old  / artex-redteam.old.exe
+	Marker  string // 升级状态标记            artex-redteam.upgrade.json
 }
 
 // ResolvePaths 按当前可执行文件推导全部升级路径。

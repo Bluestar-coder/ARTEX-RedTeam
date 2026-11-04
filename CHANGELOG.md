@@ -4,6 +4,16 @@
 
 ## [Unreleased]
 
+### 更名
+
+#### 破坏性变更
+
+- **项目更名为 ARTEX-RedTeam，定位收敛到红队方向**：以攻击链推进和权限获取为主线。二进制改为 `artex-redteam`（源码入口 `cmd/artex-redteam`），发布包为 `artex-redteam-<version>-<os>-<arch>.zip`，npm 包名 `artex-redteam-web`，Docker 服务名 `artex-redteam`。
+- **环境变量统一改为 `ARTEX_REDTEAM_*` 前缀**（`ARTEX_REDTEAM_PG_DSN`、`ARTEX_REDTEAM_LLM_*`、`ARTEX_REDTEAM_SKILL_DIR` 等）；旧名 `ARTEX_*` 仍可继续使用，新名优先。
+- **数据目录默认改为 `data-redteam`**：本地运行启动时会把旧的 `data/` 自动改名迁移；Docker 宿主目录仍是 `./data`，仅容器内挂载点改为 `/app/data-redteam`，避免升级丢流量索引与 jwt.key。
+- **登录用户名改为 `ARTEX-RedTeam`**（旧的 `ARTEX` 仍接受），登录 cookie 改为 `artex_redteam_token`；升级后需重新登录一次。
+- `start.sh` / `start.bat` 优先启动 `artex-redteam`，缺失时回退 `artex`，老部署换装后无需改名即可继续运行。
+
 ## [0.3.15] - 2026-10-07
 
 ### 拦截
@@ -886,13 +896,13 @@
 - [@Autumn-27](https://github.com/Autumn-27)
 - [@neouks](https://github.com/neouks)
 
-[Unreleased]: https://github.com/Autumn-27/ARTEX/compare/v0.3.10...HEAD
-[0.3.10]: https://github.com/Autumn-27/ARTEX/compare/v0.3.9...v0.3.10
-[0.3.9]: https://github.com/Autumn-27/ARTEX/compare/v0.3.8...v0.3.9
-[0.3.8]: https://github.com/Autumn-27/ARTEX/compare/v0.3.7...v0.3.8
-[0.3.7]: https://github.com/Autumn-27/ARTEX/compare/v0.3.6...v0.3.7
-[0.3.6]: https://github.com/Autumn-27/ARTEX/compare/v0.3.5...v0.3.6
-[0.3.5]: https://github.com/Autumn-27/ARTEX/compare/v0.3.4...v0.3.5
-[0.3.4]: https://github.com/Autumn-27/ARTEX/compare/v0.3.3...v0.3.4
-[0.3.3]: https://github.com/Autumn-27/ARTEX/compare/v0.3.2...v0.3.3
-[0.3.2]: https://github.com/Autumn-27/ARTEX/compare/v0.3.1...v0.3.2
+[Unreleased]: https://github.com/Bluestar-coder/ARTEX-RedTeam/compare/v0.3.10...HEAD
+[0.3.10]: https://github.com/Bluestar-coder/ARTEX-RedTeam/compare/v0.3.9...v0.3.10
+[0.3.9]: https://github.com/Bluestar-coder/ARTEX-RedTeam/compare/v0.3.8...v0.3.9
+[0.3.8]: https://github.com/Bluestar-coder/ARTEX-RedTeam/compare/v0.3.7...v0.3.8
+[0.3.7]: https://github.com/Bluestar-coder/ARTEX-RedTeam/compare/v0.3.6...v0.3.7
+[0.3.6]: https://github.com/Bluestar-coder/ARTEX-RedTeam/compare/v0.3.5...v0.3.6
+[0.3.5]: https://github.com/Bluestar-coder/ARTEX-RedTeam/compare/v0.3.4...v0.3.5
+[0.3.4]: https://github.com/Bluestar-coder/ARTEX-RedTeam/compare/v0.3.3...v0.3.4
+[0.3.3]: https://github.com/Bluestar-coder/ARTEX-RedTeam/compare/v0.3.2...v0.3.3
+[0.3.2]: https://github.com/Bluestar-coder/ARTEX-RedTeam/compare/v0.3.1...v0.3.2

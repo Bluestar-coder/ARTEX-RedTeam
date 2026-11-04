@@ -360,6 +360,45 @@ func TestExtractBinaryFindsNestedEntry(t *testing.T) {
 	}
 }
 
+func TestExtractBinaryFindsRenamedEntry(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("包内基名在 Windows 上是 artex-redteam.exe，此用例按 Unix 命名构造")
+	}
+	dir := t.TempDir()
+	zipPath := filepath.Join(dir, "release.zip")
+
+	f, err := os.Create(zipPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zw := zip.NewWriter(f)
+	// 改名后的发布包结构：artex-redteam-<版本>-<os>-<arch>/artex-redteam。
+	for name, body := range map[string]string{
+		"artex-redteam-0.5.0-linux-amd64/README.md":     "readme",
+		"artex-redteam-0.5.0-linux-amd64/artex-redteam": "#!/bin/sh\nexit 0\n",
+	} {
+		w, err := zw.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.Write([]byte(body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+
+	dst := filepath.Join(dir, "out")
+	if err := extractBinary(zipPath, dst); err != nil {
+		t.Fatalf("extractBinary: %v", err)
+	}
+	if got := readAll(t, dst); !strings.Contains(got, "exit 0") {
+		t.Errorf("解压出来的不是 artex-redteam 可执行文件: %q", got)
+	}
+}
+
 func TestExtractBinaryMissingEntry(t *testing.T) {
 	dir := t.TempDir()
 	zipPath := filepath.Join(dir, "release.zip")
@@ -405,13 +444,31 @@ func TestCheckURLRejectsNonGitHub(t *testing.T) {
 }
 
 func TestAssetNameMatchesBuildScript(t *testing.T) {
-	// build.sh 的 package_binary 用的是 artex-<版本>-<os>-<arch>.zip，且版本号
-	// 去掉了 v 前缀。这里对错一个字符，所有平台的一键更新都会找不到资产。
-	if got := AssetName("v0.3.8", "linux", "amd64"); got != "artex-0.3.8-linux-amd64.zip" {
+	// build.sh 的 package_binary 用的是 artex-redteam-<版本>-<os>-<arch>.zip，
+	// 且版本号去掉了 v 前缀。这里对错一个字符，所有平台的一键更新都会找不到资产。
+	if got := AssetName("v0.3.8", "linux", "amd64"); got != "artex-redteam-0.3.8-linux-amd64.zip" {
 		t.Errorf("AssetName = %q", got)
 	}
-	if got := AssetName("0.3.8", "windows", "amd64"); got != "artex-0.3.8-windows-amd64.zip" {
+	if got := AssetName("0.3.8", "windows", "amd64"); got != "artex-redteam-0.3.8-windows-amd64.zip" {
 		t.Errorf("AssetName = %q", got)
+	}
+}
+
+// TestPlatformAssetFallsBackToLegacy 覆盖改名过渡期：改名前的 Release 只挂
+// artex-* 资产，新版本必须仍然能装，否则老版本永远升不上来。
+func TestPlatformAssetFallsBackToLegacy(t *testing.T) {
+	rel := &Release{
+		TagName: "v0.4.1",
+		Assets:  []Asset{{Name: "artex-0.4.1-linux-amd64.zip", Size: 42}},
+	}
+	a, name, ok := PlatformAsset(rel, rel.TagName, "linux", "amd64")
+	if !ok || name != "artex-0.4.1-linux-amd64.zip" || a.Size != 42 {
+		t.Fatalf("legacy fallback: ok=%v name=%q size=%d", ok, name, a.Size)
+	}
+	// 新名优先
+	rel.Assets = append([]Asset{{Name: "artex-redteam-0.4.1-linux-amd64.zip", Size: 7}}, rel.Assets...)
+	if _, name, ok := PlatformAsset(rel, rel.TagName, "linux", "amd64"); !ok || name != "artex-redteam-0.4.1-linux-amd64.zip" {
+		t.Fatalf("new name should win, got %q", name)
 	}
 }
 

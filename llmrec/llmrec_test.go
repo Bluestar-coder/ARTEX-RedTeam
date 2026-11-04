@@ -83,9 +83,9 @@ func (meteredStreamProvider) Stream(context.Context, llm.CompletionRequest) iter
 }
 
 func TestSideUsageRecordedOnceOnConsumerCancellation(t *testing.T) {
-	dsn := os.Getenv("ARTEX_PG_DSN")
+	dsn := testPGDSN()
 	if dsn == "" {
-		t.Skip("requires isolated ARTEX_PG_DSN")
+		t.Skip("requires an isolated ARTEX_REDTEAM_PG_DSN (or legacy ARTEX_PG_DSN)")
 	}
 	pg, err := db.Open(dsn)
 	if err != nil {
@@ -122,4 +122,13 @@ FROM llm_usage WHERE profile_name=$1`, profile).Scan(&count, &input, &output, &w
 			t.Fatalf("early=%v: count=%d usage=%d/%d worker=%q status=%q", early, count, input, output, worker, status)
 		}
 	}
+}
+
+// testPGDSN resolves the integration-test database from the new env name with
+// the pre-rename one as a fallback.
+func testPGDSN() string {
+	if v := os.Getenv("ARTEX_REDTEAM_PG_DSN"); v != "" {
+		return v
+	}
+	return os.Getenv("ARTEX_PG_DSN")
 }

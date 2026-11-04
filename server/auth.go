@@ -22,6 +22,17 @@ const (
 	jwtTTL         = 7 * 24 * time.Hour
 	keyChars       = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
+	// authUsername is the canonical login name after the ARTEX → ARTEX-RedTeam
+	// rename. The web client sends it; legacyAuthUsername stays accepted so old
+	// clients (and old bookmarks/scripts) keep working.
+	authUsername       = "ARTEX-RedTeam"
+	legacyAuthUsername = "ARTEX"
+
+	// authCookie is the browser cookie carrying the JWT. The legacy name is
+	// still read so sessions issued before the rename survive until they expire.
+	authCookie       = "artex_redteam_token"
+	legacyAuthCookie = "artex_token"
+
 	// 下限与 setup 页的前端校验一致——校验只放在前端等于没放，直接打 API 就能
 	// 绕过。上限是 bcrypt 的硬限制：超过 72 字节 GenerateFromPassword 会返回
 	// ErrPasswordTooLong，提前挡掉好过让用户收到一句含义不明的「密码加密失败」。
@@ -83,10 +94,10 @@ func loadOrCreateJWTKey(keyDir, dataDir string) ([]byte, error) {
 	return buf, nil
 }
 
-// signJWT issues a 7-day HS256 token for user ARTEX.
+// signJWT issues a 7-day HS256 token for user ARTEX-RedTeam.
 func signJWT(key []byte) (string, error) {
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
-		Subject:   "ARTEX",
+		Subject:   authUsername,
 		ExpiresAt: jwt.NewNumericDate(time.Now().Add(jwtTTL)),
 		IssuedAt:  jwt.NewNumericDate(time.Now()),
 	}).SignedString(key)
@@ -103,13 +114,17 @@ func verifyJWT(tokenStr string, key []byte) bool {
 	return err == nil && t.Valid
 }
 
-// extractToken reads the JWT from Authorization: Bearer header,
-// artex_token cookie, or ?token= query param (for SSE connections).
+// extractToken reads the JWT from Authorization: Bearer header, the
+// artex_redteam_token cookie (legacy artex_token accepted), or ?token= query
+// param (for SSE connections).
 func extractToken(r *http.Request) string {
 	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
 		return strings.TrimPrefix(h, "Bearer ")
 	}
-	if c, err := r.Cookie("artex_token"); err == nil && c.Value != "" {
+	if c, err := r.Cookie(authCookie); err == nil && c.Value != "" {
+		return c.Value
+	}
+	if c, err := r.Cookie(legacyAuthCookie); err == nil && c.Value != "" {
 		return c.Value
 	}
 	return r.URL.Query().Get("token")
@@ -272,7 +287,7 @@ func (s *Server) authLogin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "请求格式错误")
 		return
 	}
-	if req.Username != "ARTEX" {
+	if req.Username != authUsername && req.Username != legacyAuthUsername {
 		writeErr(w, 401, "用户名或密码错误")
 		return
 	}

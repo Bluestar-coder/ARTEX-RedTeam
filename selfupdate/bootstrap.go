@@ -19,7 +19,7 @@ import (
 // 严格来说不加也不会出事：子进程的 os.Executable() 是 artex.new，推导出来的
 // 全部路径都带 .new 前缀，碰不到真正的升级文件。但依赖这种巧合太脆弱，
 // 显式短路一目了然，也省掉子进程一次无谓的磁盘探测。
-const smokeEnv = "ARTEX_SELFUPDATE_SMOKE"
+const smokeEnv = "ARTEX_REDTEAM_SELFUPDATE_SMOKE"
 
 // Action 是 Bootstrap 给 main 的指令。
 type Action int

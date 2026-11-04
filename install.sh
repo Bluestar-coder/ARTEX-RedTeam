@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ARTEX 安装脚本：① 全部 Docker  ② 本地编译运行
+# ARTEX-RedTeam 安装脚本：① 全部 Docker  ② 本地编译运行
 set -euo pipefail
 cd "$(cd "$(dirname "$0")" && pwd)"
 
@@ -9,6 +9,20 @@ warn(){ printf '\033[33m[!]\033[0m %s\n' "$*"; }
 die(){  printf '\033[31m[x]\033[0m %s\n' "$*" >&2; exit 1; }
 ask(){  local p="$1" d="${2:-}" a; read -rp "$p${d:+ [$d]}: " a; echo "${a:-$d}"; }
 rand(){ head -c 18 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 24; }
+
+# ── 一次性数据目录迁移（本地模式）────────────────
+# 老部署的数据在 ./data，新版本默认用 ./data-redteam。
+# 只在 data-redteam 不存在时迁移，绝不覆盖已有目录。
+migrate_legacy_data(){
+  if [ -d data ] && [ ! -e data-redteam ]; then
+    info "检测到旧数据目录 ./data，迁移为 ./data-redteam（不覆盖任何已有目录）…"
+    if mv data data-redteam; then
+      ok "已迁移 ./data → ./data-redteam"
+    else
+      warn "迁移失败；应用启动时会自动重试，失败则回退使用 ./data"
+    fi
+  fi
+}
 
 # ── docker 环境检测 / 自动安装 ───────────────────
 ensure_docker(){
@@ -48,7 +62,7 @@ install_docker(){
   info "构建镜像并启动…"
   docker compose up -d --build
   ok "启动完成 → http://localhost:8787"
-  info "查看日志：docker compose logs -f artex"
+  info "查看日志：docker compose logs -f artex-redteam"
 }
 
 # ── ② 本地编译运行 ──────────────────────────────
@@ -60,9 +74,10 @@ install_local(){
     2)
       ensure_docker
       local pw; pw="$(ask 'Postgres 密码（回车随机）' "$(rand)")"
-      docker run -d --name artex-pg -p 5432:5432 \
+      # Postgres 账号/库名沿用 artex（历史兼容，勿改）。
+      docker run -d --name artex-redteam-pg -p 5432:5432 \
         -e POSTGRES_USER=artex -e POSTGRES_PASSWORD="$pw" -e POSTGRES_DB=artex \
-        -v artex-pg:/var/lib/postgresql/data postgres:16-alpine
+        -v artex-redteam-pg:/var/lib/postgresql/data postgres:16-alpine
       DB_HOST=127.0.0.1 DB_PORT=5432 DB_USER=artex DB_PASS="$pw" DB_NAME=artex DB_SSL=disable ;;
     *)
       DB_HOST="$(ask '数据库地址' 127.0.0.1)"
@@ -98,19 +113,20 @@ JSON
     ( cd web && npm ci && npm run build:static )
     rm -rf server/webui/dist && cp -r web/out server/webui/dist
     info "编译内嵌单二进制…"
-    CGO_ENABLED=0 go build -tags embedui -trimpath -o artex ./cmd/artex
+    CGO_ENABLED=0 go build -tags embedui -trimpath -o artex-redteam ./cmd/artex-redteam
   else
     warn "未检测到 npm：将编译**不内嵌前端**的后端（前端需另跑 npm run dev）"
-    CGO_ENABLED=0 go build -o artex ./cmd/artex
+    CGO_ENABLED=0 go build -o artex-redteam ./cmd/artex-redteam
   fi
-  ok "编译完成 → ./artex"
+  ok "编译完成 → ./artex-redteam"
 
+  migrate_legacy_data
   info "启动…（Ctrl-C 退出）"
-  ./artex
+  ./artex-redteam
 }
 
 echo "=============================="
-echo "  ARTEX 安装"
+echo "  ARTEX-RedTeam 安装"
 echo "  1) 全部 Docker 安装"
 echo "  2) 本地运行（go 编译）"
 echo "=============================="

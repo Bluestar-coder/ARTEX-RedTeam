@@ -1,4 +1,4 @@
-// Command artex runs the ARTEX backend: the PostgreSQL-backed asset and
+// Command artex-redteam runs the ARTEX-RedTeam backend: the PostgreSQL-backed asset and
 // exploration graphs, the event-driven exploration engine, and the JSON HTTP
 // API consumed by the shadcn/ui frontend (embedded with -tags embedui).
 package main
@@ -37,7 +37,7 @@ const banner = `
 // printBanner writes the startup banner + version/runtime info to stdout.
 func printBanner(addr string) {
 	fmt.Print(banner)
-	fmt.Println("  AI 自主渗透测试系统")
+	fmt.Println("  AI 自主红队作战系统")
 	fmt.Printf("  版本 %s  ·  %s/%s  ·  %s  ·  监听 %s\n\n",
 		version, runtime.GOOS, runtime.GOARCH, runtime.Version(), addr)
 }
@@ -53,11 +53,25 @@ func main() {
 func run() int {
 	var (
 		addr    = flag.String("addr", ":8787", "HTTP listen address")
-		dataDir = flag.String("data", filepath.Join(config.BaseDir(), "data"), "data directory for the traffic index, JWT key and workspaces (default: data/ next to the executable)")
+		dataDir = flag.String("data", config.DefaultDataDir(), "data directory for the traffic index, JWT key and workspaces (default: data-redteam/ next to the executable)")
 		proxy   = flag.String("proxy", "127.0.0.1:8788", "traffic recording proxy address (empty to disable)")
 		proxyGW = flag.String("proxy-pool-gateway", "127.0.0.1:8789", "proxy-pool forwarding gateway address (empty to disable 入口C)")
 	)
 	flag.Parse()
+
+	// Data directory: adopt a pre-rename data/ directory next to the binary so an
+	// in-place upgrade keeps jwt.key, the traffic index and workspaces. Only runs
+	// when the user did not pass an explicit -data.
+	if *dataDir == config.DefaultDataDir() {
+		actual, legacy := config.AdoptLegacyDataDir(*dataDir)
+		switch {
+		case legacy != "":
+			log.Printf("[config] 数据目录已从 %s 迁移到 %s", legacy, actual)
+		case actual != *dataDir:
+			log.Printf("[config] 数据目录迁移失败，继续使用旧目录 %s（建议手动迁移到 %s）", actual, *dataDir)
+		}
+		*dataDir = actual
+	}
 
 	// hand the build version to the server package so GET /api/health can report it
 	// to the frontend top bar.
@@ -88,7 +102,7 @@ func run() int {
 	if _, e := os.Stat(cfgPath); e == nil {
 		log.Printf("[config] 配置文件: %s", cfgPath)
 	} else {
-		log.Printf("[config] 配置文件: %s (不存在 — 将仅尝试环境变量 ARTEX_PG_DSN)", cfgPath)
+		log.Printf("[config] 配置文件: %s (不存在 — 将仅尝试环境变量 ARTEX_REDTEAM_PG_DSN/ARTEX_PG_DSN)", cfgPath)
 	}
 
 	sigCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -121,7 +135,7 @@ func run() int {
 	}
 
 	go func() {
-		log.Printf("ARTEX %s backend listening on %s (data=%s, workers=%d)", version, *addr, *dataDir, mgr.Workers())
+		log.Printf("ARTEX-RedTeam %s backend listening on %s (data=%s, workers=%d)", version, *addr, *dataDir, mgr.Workers())
 		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("serve: %v", err)
 		}

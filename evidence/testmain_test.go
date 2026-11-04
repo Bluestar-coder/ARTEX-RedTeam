@@ -11,13 +11,13 @@ import (
 // Initialize an explicitly configured fresh database before taking the same
 // suite lock as db, agent and server. Hold it on one pinned connection.
 func TestMain(m *testing.M) {
-	if os.Getenv("ARTEX_PG_DSN") == "" {
+	if testPGDSN() == "" {
 		os.Exit(m.Run())
 	}
 	os.Exit(runEvidenceSuite(m))
 }
 func runEvidenceSuite(m *testing.M) int {
-	pg, err := db.Open(os.Getenv("ARTEX_PG_DSN"))
+	pg, err := db.Open(testPGDSN())
 	if err != nil {
 		panic(err)
 	}
@@ -32,4 +32,13 @@ func runEvidenceSuite(m *testing.M) int {
 	}
 	defer conn.ExecContext(context.Background(), `SELECT pg_advisory_unlock(7337741002)`)
 	return m.Run()
+}
+
+// testPGDSN resolves the integration-test database from the new env name with
+// the pre-rename one as a fallback.
+func testPGDSN() string {
+	if v := os.Getenv("ARTEX_REDTEAM_PG_DSN"); v != "" {
+		return v
+	}
+	return os.Getenv("ARTEX_PG_DSN")
 }

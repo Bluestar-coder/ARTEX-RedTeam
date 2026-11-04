@@ -1,6 +1,6 @@
 # norma（内置副本）
 
-ARTEX 的 agent SDK 原为外部依赖 `github.com/Autumn-27/norma`，现整体并入本模块：
+ARTEX-RedTeam 的 agent SDK 原为外部依赖 `github.com/Autumn-27/norma`，现整体并入本模块：
 
 - 源码位置：`norma/`
 - import 路径：`github.com/Bluestar-coder/ARTEX-RedTeam/norma/...`

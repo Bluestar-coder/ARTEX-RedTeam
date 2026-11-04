@@ -56,8 +56,7 @@ func Stage(ctx context.Context, c *http.Client, rel *Release, currentVersion str
 		return err
 	}
 
-	name := AssetName(rel.TagName, runtime.GOOS, runtime.GOARCH)
-	asset, ok := rel.FindAsset(name)
+	asset, name, ok := PlatformAsset(rel, rel.TagName, runtime.GOOS, runtime.GOARCH)
 	if !ok {
 		return fmt.Errorf("该版本没有提供 %s/%s 的发布包（缺少 %s）", runtime.GOOS, runtime.GOARCH, name)
 	}
@@ -224,7 +223,7 @@ func get(ctx context.Context, c *http.Client, rawURL string) (io.ReadCloser, err
 	if err := checkURL(req.URL); err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "artex-selfupdate")
+	req.Header.Set("User-Agent", "artex-redteam-selfupdate")
 	resp, err := c.Do(req)
 	if err != nil {
 		return nil, err
@@ -236,14 +235,16 @@ func get(ctx context.Context, c *http.Client, rawURL string) (io.ReadCloser, err
 	return resp.Body, nil
 }
 
-// extractBinary 从发布包里取出 artex 可执行文件。
+// extractBinary 从发布包里取出可执行文件。
 //
-// 包内结构是 artex-<版本>-<os>-<arch>/artex，但这里按**基名**匹配而不是拼完整
-// 路径：版本号在包名里出现过一次，拼错一个字符就整个升级失败，按基名找更耐改。
+// 包内结构是 artex-redteam-<版本>-<os>-<arch>/artex-redteam；改名前的发布包是
+// artex-<版本>-<os>-<arch>/artex。这里按**基名**匹配并同时接受新旧两个名字
+// （新名优先），版本号在包名里出现过一次，拼错一个字符就整个升级失败，按基名找
+// 更耐改；接受旧名则让改名后的客户端仍能安装改名前的 Release。
 func extractBinary(zipPath, dst string) error {
-	want := "artex"
+	wantNew, wantOld := "artex-redteam", "artex"
 	if runtime.GOOS == "windows" {
-		want = "artex.exe"
+		wantNew, wantOld = "artex-redteam.exe", "artex.exe"
 	}
 	zr, err := zip.OpenReader(zipPath)
 	if err != nil {
@@ -251,41 +252,51 @@ func extractBinary(zipPath, dst string) error {
 	}
 	defer zr.Close()
 
-	for _, entry := range zr.File {
-		if entry.FileInfo().IsDir() || !strings.EqualFold(path.Base(entry.Name), want) {
-			continue
-		}
-		rc, err := entry.Open()
-		if err != nil {
-			return fmt.Errorf("读取 %s: %w", entry.Name, err)
-		}
-		defer rc.Close()
+	extract := func(want string) (bool, error) {
+		for _, entry := range zr.File {
+			if entry.FileInfo().IsDir() || !strings.EqualFold(path.Base(entry.Name), want) {
+				continue
+			}
+			rc, err := entry.Open()
+			if err != nil {
+				return false, fmt.Errorf("读取 %s: %w", entry.Name, err)
+			}
+			defer rc.Close()
 
-		f, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
-		if err != nil {
-			return fmt.Errorf("写出新二进制: %w", err)
-		}
-		defer f.Close()
+			f, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
+			if err != nil {
+				return false, fmt.Errorf("写出新二进制: %w", err)
+			}
+			defer f.Close()
 
-		n, err := io.Copy(f, io.LimitReader(rc, maxBinarySize+1))
-		if err != nil {
-			return fmt.Errorf("解压 %s: %w", entry.Name, err)
+			n, err := io.Copy(f, io.LimitReader(rc, maxBinarySize+1))
+			if err != nil {
+				return false, fmt.Errorf("解压 %s: %w", entry.Name, err)
+			}
+			if n > maxBinarySize {
+				return false, fmt.Errorf("发布包内的可执行文件超过 %s，拒绝解压", humanSize(maxBinarySize))
+			}
+			if n == 0 {
+				return false, fmt.Errorf("发布包内的 %s 是空文件", want)
+			}
+			return true, f.Sync()
 		}
-		if n > maxBinarySize {
-			return fmt.Errorf("发布包内的可执行文件超过 %s，拒绝解压", humanSize(maxBinarySize))
-		}
-		if n == 0 {
-			return fmt.Errorf("发布包内的 %s 是空文件", want)
-		}
-		return f.Sync()
+		return false, nil
 	}
-	return fmt.Errorf("发布包里没有找到 %s", want)
+
+	if ok, err := extract(wantNew); ok || err != nil {
+		return err
+	}
+	if ok, err := extract(wantOld); ok || err != nil {
+		return err
+	}
+	return fmt.Errorf("发布包里没有找到 %s（旧名 %s 也没有）", wantNew, wantOld)
 }
 
 // checkWritable 提前确认目录可写。没有这一步，非 root 运行、或二进制被放在系统
 // 目录时，会在下载完几十 MB 之后才在换装那一刻失败。
 func checkWritable(dir string) error {
-	probe, err := os.CreateTemp(dir, ".artex-update-probe-*")
+	probe, err := os.CreateTemp(dir, ".artex-redteam-update-probe-*")
 	if err != nil {
 		return fmt.Errorf("程序目录 %s 不可写，无法自动更新（请检查权限或改用手动升级）: %w", dir, err)
 	}

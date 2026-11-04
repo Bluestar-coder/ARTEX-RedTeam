@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Bluestar-coder/ARTEX-RedTeam/config"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/llmrec"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/norma/agentcore"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/norma/compaction"
@@ -136,13 +137,16 @@ func compactionConfig(windowTokens int) *compaction.Config {
 
 // FromEnv resolves the LLM provider config:
 //
-//	ARTEX_LLM_PROVIDER = anthropic|openai (default: inferred from keys)
-//	ARTEX_LLM_MODEL    = model id        (default: per provider)
-//	ARTEX_LLM_BASE_URL = endpoint        (optional)
-//	ARTEX_LLM_PROXY    = proxy URL        (optional; http/https/socks5)
+//	ARTEX_REDTEAM_LLM_PROVIDER = anthropic|openai (default: inferred from keys)
+//	ARTEX_REDTEAM_LLM_MODEL    = model id        (default: per provider)
+//	ARTEX_REDTEAM_LLM_BASE_URL = endpoint        (optional)
+//	ARTEX_REDTEAM_LLM_PROXY    = proxy URL        (optional; http/https/socks5)
+//	ARTEX_REDTEAM_LLM_STREAM   = 0/false/off disables streaming
+//
+// The pre-rename ARTEX_LLM_* names are still accepted as a fallback.
 //	ANTHROPIC_API_KEY / OPENAI_API_KEY         = credentials
 func FromEnv() (Config, bool) {
-	prov := os.Getenv("ARTEX_LLM_PROVIDER")
+	prov := config.Env("LLM_PROVIDER")
 	anthKey := os.Getenv("ANTHROPIC_API_KEY")
 	oaiKey := os.Getenv("OPENAI_API_KEY")
 
@@ -158,11 +162,11 @@ func FromEnv() (Config, bool) {
 	}
 
 	c := Config{
-		BaseURL: os.Getenv("ARTEX_LLM_BASE_URL"),
-		Model:   os.Getenv("ARTEX_LLM_MODEL"),
-		Proxy:   strings.TrimSpace(os.Getenv("ARTEX_LLM_PROXY")),
-		// 默认流式;ARTEX_LLM_STREAM=false/0/off 显式关闭走非流式。
-		Stream: !isFalsy(os.Getenv("ARTEX_LLM_STREAM")),
+		BaseURL: config.Env("LLM_BASE_URL"),
+		Model:   config.Env("LLM_MODEL"),
+		Proxy:   config.Env("LLM_PROXY"),
+		// 默认流式;ARTEX_REDTEAM_LLM_STREAM=false/0/off 显式关闭走非流式。
+		Stream: !isFalsy(config.Env("LLM_STREAM")),
 	}
 	switch prov {
 	case "openai":

@@ -27,15 +27,23 @@ import (
 //
 // 但「本机 SMTP 中继」（127.0.0.1:25 上的 postfix）是自建邮件的常见配置，
 // 一刀切会把人卡住。所以留一个显式逃生口而不是硬编码放行：
-// 设置 ARTEX_NOTIFY_ALLOW_LOCAL=1 即允许。
+// 设置 ARTEX_REDTEAM_NOTIFY_ALLOW_LOCAL=1 即允许（旧名 ARTEX_NOTIFY_ALLOW_LOCAL 仍兼容）。
 //
 // 导出为 AllowLocalTargetsEnv 是为了让测试能明确地打开它——本包与 server 包的
 // 用例大量使用 127.0.0.1 上的 httptest 假接收端，不打开就全部被守卫拦下。
-const AllowLocalTargetsEnv = "ARTEX_NOTIFY_ALLOW_LOCAL"
+const (
+	AllowLocalTargetsEnv       = "ARTEX_REDTEAM_NOTIFY_ALLOW_LOCAL"
+	legacyAllowLocalTargetsEnv = "ARTEX_NOTIFY_ALLOW_LOCAL"
+)
 
 func allowLocalTargets() bool {
-	v := strings.TrimSpace(os.Getenv(AllowLocalTargetsEnv))
-	return v == "1" || strings.EqualFold(v, "true")
+	for _, key := range []string{AllowLocalTargetsEnv, legacyAllowLocalTargetsEnv} {
+		v := strings.TrimSpace(os.Getenv(key))
+		if v == "1" || strings.EqualFold(v, "true") {
+			return true
+		}
+	}
+	return false
 }
 
 // isBlockedDialIP 报告目标 IP 是否属于「默认不允许投递」的地址段。

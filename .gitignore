@@ -1,5 +1,6 @@
 # backend
 /data/
+/data-redteam/
 *.db
 *.db-wal
 *.db-shm
@@ -34,14 +35,21 @@ Thumbs.db
 # claude code local state
 .claude/
 
-# 内嵌前端的单二进制产物
+# 内嵌前端的单二进制产物（新名；旧名 /artex 保留兼容老部署）
 /artex
-# 一键更新在可执行文件旁留下的中间产物（暂存件 / 备份 / 失败版本 / 升级标记）
+/artex-redteam
+# 一键更新在可执行文件旁留下的中间产物（暂存件 / 备份 / 失败版本 / 升级标记；
+# 旧名 /artex.* 保留兼容老部署）
 /artex.new
 /artex.new.sha256
 /artex.old
 /artex.failed
 /artex.upgrade.json
+/artex-redteam.new
+/artex-redteam.new.sha256
+/artex-redteam.old
+/artex-redteam.failed
+/artex-redteam.upgrade.json
 /server/webui/dist/
 /dist/
 

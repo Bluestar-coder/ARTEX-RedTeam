@@ -1,4 +1,4 @@
--- ARTEX PostgreSQL schema (单一数据源)
+-- ARTEX-RedTeam PostgreSQL schema (单一数据源)
 -- 幂等：可重复执行（IF NOT EXISTS / OR REPLACE / DROP TRIGGER IF EXISTS）。
 
 -- =====================================================================

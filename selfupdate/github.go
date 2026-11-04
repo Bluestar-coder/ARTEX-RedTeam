@@ -94,7 +94,7 @@ func FetchLatest(ctx context.Context, c *http.Client) (*Release, error) {
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "artex-selfupdate")
+	req.Header.Set("User-Agent", "artex-redteam-selfupdate")
 
 	resp, err := c.Do(req)
 	if err != nil {
@@ -123,10 +123,28 @@ func FetchLatest(ctx context.Context, c *http.Client) (*Release, error) {
 }
 
 // AssetName 返回当前平台对应的发布包名，与 build.sh 的 package_binary 保持一致：
-// artex-<版本>-<os>-<arch>.zip（版本号不带 v 前缀）。
+// artex-redteam-<版本>-<os>-<arch>.zip（版本号不带 v 前缀）。
 func AssetName(tag, goos, goarch string) string {
+	return fmt.Sprintf("artex-redteam-%s-%s-%s.zip", strings.TrimPrefix(tag, "v"), goos, goarch)
+}
+
+// LegacyAssetName 是改名前的发布包名。改名之前发布的 Release 只有这个名字，
+// 检查更新时用它兜底，避免老版本永远看不到新版本。
+func LegacyAssetName(tag, goos, goarch string) string {
 	return fmt.Sprintf("artex-%s-%s-%s.zip", strings.TrimPrefix(tag, "v"), goos, goarch)
 }
+
+// PlatformAsset 返回本平台应安装的资产，优先新名、回退旧名。
+// 返回的 name 是命中的资产名（供 SHA256SUMS 查表）；ok=false 时 name 为新名。
+func PlatformAsset(rel *Release, tag, goos, goarch string) (asset Asset, name string, ok bool) {
+	for _, n := range []string{AssetName(tag, goos, goarch), LegacyAssetName(tag, goos, goarch)} {
+		if a, found := rel.FindAsset(n); found {
+			return a, n, true
+		}
+	}
+	return Asset{}, AssetName(tag, goos, goarch), false
+}
+
 
 // FindAsset 在 Release 里按名字找资产。
 func (r *Release) FindAsset(name string) (Asset, bool) {

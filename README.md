@@ -1,14 +1,49 @@
 <div align="center">
 
-# ARTEX
+# ARTEX-RedTeam
 
-AI 自主渗透测试系统（Go 后端 + Next.js 前端）
+**AI 自主红队作战系统**：LLM 多 agent 驱动，自主规划、执行并推进攻击链
+
+Go 单体后端（内嵌 Next.js 前端）· PostgreSQL · 单二进制部署
 
 </div>
 
-> **本仓库是 ARTEX 的独立二次开发版本**（`Bluestar-coder/ARTEX-RedTeam`）。原始项目仓库已被原作者删除，本仓库在此代码基础上继续维护，协议仍为 AGPL-3.0。
+> **本仓库是 ARTEX 的独立二次开发版本**（`Bluestar-coder/ARTEX-RedTeam`），现已更名为 **ARTEX-RedTeam**，更聚焦**红队方向**：以攻击链推进和权限获取为主线，而不是以漏洞数量为产出。原始项目仓库已被原作者删除，本仓库在此代码基础上继续维护与演进，协议仍为 AGPL-3.0。
 >
 > 本仓库不沿用上游的任何发布物：Docker 镜像、Release 压缩包、演示站都不再指向原来的项目。自 v0.4.1 起，Release 压缩包与 Docker 镜像（`bluestarcoder/artex-redteam`，amd64/arm64）均由本仓库 CI 构建发布。
+
+---
+
+## 项目概述
+
+ARTEX-RedTeam 把一次红队行动组织成可观察、可复盘的自主闭环：
+
+- **多 agent 分工**：`goals` 分解目标并提取测试范围，`planner` 是唯一的意图生成者，`worker` 领取意图后用真实工具执行，`mainagent` 负责人在环路。
+- **双图架构**：全局共享的**资产图**（根域名、子域、IP、服务、应用、端点）保存资产真值；每任务独立的**探索图**（目标、意图、事实、漏洞、提示的血缘链）记录推进过程；两图通过锚点相连，支撑资产测试覆盖度统计。
+- **事件驱动闭环**：探索图一变就唤醒 planner 派发新意图，worker 写回结果后再次触发下一轮，直到目标被 `prove_goal` 证明。
+- **多步攻击链稳定推进**：planner 持有跨唤醒共享的 todolist，按前置依赖逐步派发，不重复、不错序；worker 还能检索其他 work 的执行过程，复用尚未沉淀为事实的观察。
+- **全程留痕与管控**：MITM 记录代理为 Bash / HTTP 调用留痕并验证 CA，危险操作经审批门拦截；出口可走代理池，发现可推送到 IM 或汇总进报告。
+
+---
+
+## 红队定位
+
+ARTEX-RedTeam 不是“扫一遍出漏洞清单”的扫描器，它围绕红队行动的三个核心问题组织能力：
+
+| 红队问题 | 系统里的对应机制 |
+| --- | --- |
+| **打哪里** | 资产图（根域 → 子域 → 服务 → 端点）+ 覆盖度/覆盖图，回答“范围内还有什么没打” |
+| **怎么打进去、走到哪一步** | 攻击链 todolist + 串行意图派发：发现入口 → 拿凭据 → 横向 → 提权，按前置依赖逐步推进 |
+| **能做什么、不能做什么** | 任务级**操作约束**（allow/deny）作为交战规则（RoE），最高优先级注入 planner/worker 提示词 |
+
+配套的 OPSEC 与协作能力：
+
+- **出口管理**：代理池 + 本地转发网关，给 Bash / HTTP 调用统一出口并按需轮换；
+- **人在环路**：危险工具调用走审批门（guard / intercept），执行中可 `steer` 纠偏或 `kill` 终止单个 work；
+- **过程情报共享**：worker 可检索同任务其他 work 的执行过程，复用尚未写成 fact 的观察；
+- **交付物**：漏洞 + 证据 + 会话链路 + 报告，支持 IM 推送与归档。
+
+> 当前边界（规划中）：资产模型仍以网络 / Web 资产为主，**凭据、落地主机、会话 / 隧道、域内对象**等“访问状态”尚未作为一等资产建模；攻击阶段（侦察 → 初始访问 → 提权 → 横向 → 收集）也还没有独立的阶段字段。这两项是红队化改造的下一步。
 
 ---
 
@@ -50,7 +85,7 @@ AI 自主渗透测试系统（Go 后端 + Next.js 前端）
 ## 审批记录详情
 
 全局「审批记录」、任务内「拦截审批」及对话中的审批卡片均支持展开查看详情。展示结构参考
-[AegisHook 的审批详情组件](https://github.com/RuoJi6/AegisHook/blob/main/web/src/components/CallDetail.vue)，沿用 ARTEX 的组件和主题：
+[AegisHook 的审批详情组件](https://github.com/RuoJi6/AegisHook/blob/main/web/src/components/CallDetail.vue)，沿用 ARTEX-RedTeam 的组件和主题：
 
 
 ## 资产同步（ScopeSentry）
@@ -59,7 +94,7 @@ AI 自主渗透测试系统（Go 后端 + Next.js 前端）
 
 - 在「**资产同步**」页填 ScopeSentry 的地址与 API Key，接入数据源；
 - 按**项目**或**任务**维度选择要同步的目标与资产类型（域名 / 子域 / IP / 端口 / 站点 / 端点…）；
-- 一键导入并按公司资产范围归并，直接进入 ARTEX 的资产图供 agent 探索使用。
+- 一键导入并按公司资产范围归并，直接进入 ARTEX-RedTeam 的资产图供 agent 探索使用。
 
 ---
 
@@ -88,17 +123,17 @@ cd ARTEX-RedTeam
 git clone https://github.com/Bluestar-coder/ARTEX-RedTeam.git
 cd ARTEX-RedTeam
 cp .env.example .env          # 填 POSTGRES_PASSWORD、可选 ANTHROPIC_API_KEY
-docker compose up -d --build  # 本地构建 artex 镜像 + 启动 postgres
+docker compose up -d --build  # 本地构建 artex-redteam 镜像 + 启动 postgres
 # → http://localhost:8787
 ```
 
 镜像默认由本仓库 `Dockerfile` 本地构建；也可直接拉取 CI 发布的镜像（`bluestarcoder/artex-redteam`，amd64/arm64）：
 
 ```bash
-docker compose pull artex && docker compose up -d
+docker compose pull artex-redteam && docker compose up -d
 ```
 
-镜像已含常用工具（ripgrep/curl/vim/npm/nmap…）；`./skills` 与 `./data` 以绑定挂载持久化。
+镜像已含常用工具（ripgrep/curl/vim/npm/nmap…）；`./skills` 与宿主 `./data`（容器内 `/app/data-redteam`）以绑定挂载持久化。
 
 远程 MCP 可在系统设置中选择 `http`（Streamable HTTP）或 `sse`（旧版 SSE）。
 旧版 SSE 服务通常使用 `GET /sse` 建立事件流，再通过服务返回的
@@ -107,7 +142,7 @@ docker compose pull artex && docker compose up -d
 
 ### 方式三：下载预编译二进制（Releases）
 
-到 [Releases](https://github.com/Bluestar-coder/ARTEX-RedTeam/releases) 下载对应平台的 zip，解压后得到 `artex` + `start.sh`（Windows 为 `start.bat`）+ `skills/` + `config.example.json`：
+到 [Releases](https://github.com/Bluestar-coder/ARTEX-RedTeam/releases) 下载对应平台的 zip，解压后得到 `artex-redteam` + `start.sh`（Windows 为 `start.bat`）+ `skills/` + `config.example.json`：
 
 > 需要其他平台或自定义构建时，可执行 `./build.sh --release` 在本地 `dist/` 生成压缩包（见方式五）。
 
@@ -116,8 +151,8 @@ cp config.example.json config.json   # 填好 database 连接
 ./start.sh                           # → http://localhost:8787
 ```
 
-> 请用 `start.sh` / `start.bat` 启动，而不是直接跑 `./artex`。它是个守护脚本：程序退出后按退出码决定是否重新拉起，**页面上的[一键更新](#方式一页面一键更新推荐)靠它完成换装**。直接运行 `./artex` 时更新完就不会被拉起了。
-> 后台常驻：`nohup ./start.sh >artex.log 2>&1 &`。
+> 请用 `start.sh` / `start.bat` 启动，而不是直接跑 `./artex-redteam`。它是个守护脚本：程序退出后按退出码决定是否重新拉起，**页面上的[一键更新](#方式一页面一键更新推荐)靠它完成换装**。直接运行 `./artex-redteam` 时更新完就不会被拉起了。
+> 后台常驻：`nohup ./start.sh >artex-redteam.log 2>&1 &`。
 
 ### 方式四：从源码编译单二进制
 
@@ -127,7 +162,7 @@ cd web && npm ci && npm run build:static && cd ..
 # 2) 拷进内嵌目录
 cp -r web/out server/webui/dist
 # 3) 编译（-tags embedui 才内嵌前端）
-CGO_ENABLED=0 go build -tags embedui -o artex ./cmd/artex
+CGO_ENABLED=0 go build -tags embedui -o artex-redteam ./cmd/artex-redteam
 ./start.sh
 ```
 
@@ -137,13 +172,13 @@ CGO_ENABLED=0 go build -tags embedui -o artex ./cmd/artex
 
 ```bash
 ./build.sh --release
-# 产物：dist/artex-<version>-*.zip
+# 产物：dist/artex-redteam-<version>-*.zip
 ```
 
-UPX 自解压二进制可能与部分 Linux 内核、虚拟化环境或安全策略不兼容，因此默认不启用。可用 `ARTEX_TARGETS` 自定义目标；确认目标运行环境兼容时，可显式传入 `--upx` 进一步缩小二进制：
+UPX 自解压二进制可能与部分 Linux 内核、虚拟化环境或安全策略不兼容，因此默认不启用。可用 `ARTEX_REDTEAM_TARGETS` 自定义目标；确认目标运行环境兼容时，可显式传入 `--upx` 进一步缩小二进制：
 
 ```bash
-ARTEX_TARGETS=linux/amd64,windows/amd64 ./build.sh --release
+ARTEX_REDTEAM_TARGETS=linux/amd64,windows/amd64 ./build.sh --release
 ./build.sh --target linux/amd64 --upx
 ```
 
@@ -151,7 +186,21 @@ ARTEX_TARGETS=linux/amd64,windows/amd64 ./build.sh --release
 
 ## 更新升级
 
-> 升级只换程序、不动数据：Postgres 数据卷 `pgdata`、`./data`（jwt.key / SQLite 等）、`./skills` 都会保留。**数据库迁移无需手动执行**——`artex` 每次启动会幂等重跑 `schema.sql`（含 `ADD COLUMN` / `CREATE INDEX IF NOT EXISTS`），即“重启即迁移”。升级前仍建议先备份 `./data` 与数据库。
+> 升级只换程序、不动数据：Postgres 数据卷 `pgdata`、数据目录（jwt.key / SQLite / workspaces）与 `./skills` 都会保留。**数据库迁移无需手动执行**——`artex-redteam` 每次启动会幂等重跑 `schema.sql`（含 `ADD COLUMN` / `CREATE INDEX IF NOT EXISTS`），即“重启即迁移”。升级前仍建议先备份数据目录与数据库。
+
+### 从 ARTEX 升级到 ARTEX-RedTeam
+
+改名不改变数据与配置的语义，老部署可以直接升级，具体兼容点：
+
+| 项目 | 行为 |
+| --- | --- |
+| 环境变量 | 新名 `ARTEX_REDTEAM_*` 优先；旧名 `ARTEX_*` 继续可用（如 `ARTEX_PG_DSN`、`ARTEX_LLM_*`） |
+| 数据目录（本地运行） | 默认改为 `data-redteam`；启动时若只有旧的 `data/`，会自动改名迁移并打日志，失败则继续用旧目录 |
+| 数据目录（Docker） | 宿主目录**仍是 `./data`**（不迁移、不丢流量索引），容器内挂载点改为 `/app/data-redteam` |
+| 登录用户名 | 新的 `ARTEX-RedTeam` 与旧的 `ARTEX` 都接受；登录 cookie 从 `artex_token` 改为 `artex_redteam_token`，升级后需**重新登录一次** |
+| 二进制名 | 新安装为 `artex-redteam`；`start.sh` / `start.bat` 会优先启动 `artex-redteam`，找不到再回退 `artex`，老目录无需改名 |
+| 发布包 | 新版本资产名为 `artex-redteam-<version>-<os>-<arch>.zip`。**旧版（≤0.4.x）的一键更新不认识新资产名**，从老版本升级请手动下载一次 zip 覆盖二进制 |
+| Docker 项目 | compose 项目名取自目录名，`pgdata` 具名卷按项目名隔离；**请沿用原目录升级**，把仓库 clone/改名到新目录会得到一个新的空数据库卷 |
 
 ### 方式一：页面一键更新（推荐）
 
@@ -159,13 +208,13 @@ ARTEX_TARGETS=linux/amd64,windows/amd64 ./build.sh --release
 
 在 **系统配置** 页（侧边栏「系统配置」→ `/system/settings`）的**版本与更新**卡片里，可以直接检查并安装新版本，无需登录服务器。
 
-点「更新」后：下载当前平台的发布包 → 比对 Release 的 `SHA256SUMS` → 用 `-h` 冒烟测试新二进制 → 暂存为 `artex.new` → 程序退出，由 `start.sh` / `start.bat` 重新拉起并完成换装。页面会自动等到新版本上线后刷新。
+点「更新」后：下载当前平台的发布包 → 比对 Release 的 `SHA256SUMS` → 用 `-h` 冒烟测试新二进制 → 暂存为 `artex-redteam.new` → 程序退出，由 `start.sh` / `start.bat` 重新拉起并完成换装。页面会自动等到新版本上线后刷新。
 
-- **失败不会留下坏程序**：校验或冒烟不通过就丢弃暂存件、继续跑当前版本；换装后的新版若连续 3 次启动失败，会自动回滚到 `artex.old`（失败的那个留作 `artex.failed` 供排查）。
-- **随时可回退**：上一版本保留为 `artex.old`，卡片上有「回滚到上一版本」。注意数据库结构不会回退。
+- **失败不会留下坏程序**：校验或冒烟不通过就丢弃暂存件、继续跑当前版本；换装后的新版若连续 3 次启动失败，会自动回滚到 `artex-redteam.old`（失败的那个留作 `artex-redteam.failed` 供排查）。
+- **随时可回退**：上一版本保留为 `artex-redteam.old`，卡片上有「回滚到上一版本」。注意数据库结构不会回退。
 - **更新会中断正在运行的任务**——更新即重启，请在空闲时进行。
 - **开发构建不给更新**：版本号是 `dev` 或 `git describe` 带后缀时禁用，避免正式版覆盖掉本地调试的二进制。
-- **Docker 下只换程序、不换镜像**：镜像里的 playwright / nmap 等工具链不会跟着升级，且 `docker compose up -d` 重建容器后会退回镜像自带的版本。要连镜像一起升级请用 `docker compose up -d --build artex`（本地构建镜像）。
+- **Docker 下只换程序、不换镜像**：镜像里的 playwright / nmap 等工具链不会跟着升级，且 `docker compose up -d` 重建容器后会退回镜像自带的版本。要连镜像一起升级请用 `docker compose up -d --build artex-redteam`（本地构建镜像）。
 - 访问 GitHub 需要代理时，在同一页面配置**全局代理**即可，更新链路会走它。更新只从 GitHub 域名下载并强制 HTTPS。
 
 ### 方式二：一键更新脚本
@@ -177,24 +226,24 @@ cd ARTEX-RedTeam
 
 脚本先可选 `git pull` 拉取最新代码，再让你选 **① Docker 更新** 或 **② 本地编译更新**（与 `install.sh` 对应）：
 
-- **① Docker**：重新构建 artex 镜像（`docker compose build`）→ `docker compose up -d`（重启即自动迁移 schema）。
-- **② 本地**：重建前端静态产物 → 重新编译 `./artex`（完成后重启进程生效）。
+- **① Docker**：重新构建 artex-redteam 镜像（`docker compose build`）→ `docker compose up -d`（重启即自动迁移 schema）。
+- **② 本地**：重建前端静态产物 → 重新编译 `./artex-redteam`（完成后重启进程生效）。
 
 ### 方式三：Docker Compose（手动）
 
 ```bash
 cd ARTEX-RedTeam
 git pull                                  # 更新代码
-docker compose up -d --build artex        # 重新构建镜像并重启 → 自动迁移 schema
+docker compose up -d --build artex-redteam        # 重新构建镜像并重启 → 自动迁移 schema
 docker image prune -f                     # 清理旧镜像（可选）
 ```
 
 ### 方式四：预编译二进制（Releases）
 
-到 [Releases](https://github.com/Bluestar-coder/ARTEX-RedTeam/releases) 下载新版本 zip，停掉旧进程后覆盖 `artex` 与 `skills/`（保留你的 `config.json` 与 `data/`），重启即可：
+到 [Releases](https://github.com/Bluestar-coder/ARTEX-RedTeam/releases) 下载新版本 zip，停掉旧进程后覆盖 `artex-redteam` 与 `skills/`（保留你的 `config.json` 与数据目录），重启即可：
 
 ```bash
-cp -r <解压目录>/skills ./ && cp <解压目录>/artex ./
+cp -r <解压目录>/skills ./ && cp <解压目录>/artex-redteam ./
 ./start.sh
 ```
 
@@ -204,7 +253,7 @@ cp -r <解压目录>/skills ./ && cp <解压目录>/artex ./
 git pull
 cd web && npm ci && npm run build:static && cd ..
 cp -r web/out server/webui/dist
-CGO_ENABLED=0 go build -tags embedui -o artex ./cmd/artex
+CGO_ENABLED=0 go build -tags embedui -o artex-redteam ./cmd/artex-redteam
 # 重启 ./start.sh
 ```
 
@@ -212,7 +261,7 @@ CGO_ENABLED=0 go build -tags embedui -o artex ./cmd/artex
 
 ## 配置
 
-**数据库**（`config.json`，或用环境变量 `ARTEX_PG_DSN` 覆盖）：
+**数据库**（`config.json`，或用环境变量 `ARTEX_REDTEAM_PG_DSN` 覆盖）：
 
 ```json
 {
@@ -225,11 +274,13 @@ CGO_ENABLED=0 go build -tags embedui -o artex ./cmd/artex
 ```
 
 **LLM**：`export ANTHROPIC_API_KEY=sk-...`（或 `OPENAI_API_KEY`），也可在 UI 的「LLM 配置」页填写。
-可选：`ARTEX_LLM_PROVIDER` / `ARTEX_LLM_MODEL` / `ARTEX_LLM_BASE_URL` / `ARTEX_LLM_PROXY`。
+可选：`ARTEX_REDTEAM_LLM_PROVIDER` / `ARTEX_REDTEAM_LLM_MODEL` / `ARTEX_REDTEAM_LLM_BASE_URL` / `ARTEX_REDTEAM_LLM_PROXY`。
+
+> 环境变量统一使用 `ARTEX_REDTEAM_*` 前缀；改名前的 `ARTEX_*` 仍可继续使用（新名优先）——老 `.env` / `docker-compose` 配置无需修改。
 
 **并发**：每个任务的 work agent 数在「系统设置」里配置（默认 3）。
 
-**常用参数**：`./start.sh -addr :8787 -proxy :8788`（`-addr` 前端+API，`-proxy` 流量录制代理）。启动脚本会把参数原样透传给 `artex`。
+**常用参数**：`./start.sh -addr :8787 -proxy :8788`（`-addr` 前端+API，`-proxy` 流量录制代理）。启动脚本会把参数原样透传给 `artex-redteam`。
 
 ### 反向代理部署（HTTPS / 只开放 443）
 
@@ -282,7 +333,7 @@ server {
 ./dev.sh    # 后端(:8787) + 流量代理(:8788) + 前端 next dev(:5173) → http://localhost:5173
 ```
 
-- 后端：`go run ./cmd/artex`（不带 `-tags embedui` 则不内嵌前端）
+- 后端：`go run ./cmd/artex-redteam`（不带 `-tags embedui` 则不内嵌前端）
 - 前端：`cd web && npm run dev`（`/api` 反代到后端，带热更新）
 - 测试：`go test ./...`
 - Mock 预览（无后端）：`cd web && NEXT_PUBLIC_MOCK=1 npm run dev`
@@ -291,7 +342,7 @@ server {
 
 ## 系统技术架构
 
-ARTEX 是一套 **LLM 多 agent 驱动的自主渗透系统**：Go 单体后端（内嵌 Next.js 前端）+ PostgreSQL，agent 能力由 `norma` SDK 提供（`agentcore` / `tool` / `permission` / `harness` / `memory` / `transcript`）。`norma` 源码已并入本仓库的 [`norma/`](norma) 目录（Apache-2.0），构建不依赖任何上游仓库。核心是**双图架构**，以及围绕它的两条自主性机制：**worker 间过程级信息交换**与 **planner 多轮共享 todolist 稳定攻击链路**。
+ARTEX-RedTeam 是一套 **LLM 多 agent 驱动的自主红队作战系统**：Go 单体后端（内嵌 Next.js 前端）+ PostgreSQL，agent 能力由 `norma` SDK 提供（`agentcore` / `tool` / `permission` / `harness` / `memory` / `transcript`）。`norma` 源码已并入本仓库的 [`norma/`](norma) 目录（Apache-2.0），构建不依赖任何上游仓库。核心是**双图架构**，以及围绕它的两条自主性机制：**worker 间过程级信息交换**与 **planner 多轮共享 todolist 稳定攻击链路**。
 
 ### 总体分层
 
@@ -455,7 +506,7 @@ flowchart TB
   R3["第 3 轮（②产出 fact）　派意图③"] --> T3
 ```
 
-于是攻击链在“事件驱动 + 无状态会话”的环境下依然**稳定推进、不重复、不错序**——这是 ARTEX 能自主走完多步利用链的关键。
+于是攻击链在“事件驱动 + 无状态会话”的环境下依然**稳定推进、不重复、不错序**——这是 ARTEX-RedTeam 能自主走完多步利用链的关键。
 
 ---
 
@@ -474,7 +525,7 @@ https://github.com/oritera/Cairn
 
 > ⚠️ **重要提示**：开源协议本身不限制软件的使用用途。以下的「使用限制」与「免责声明」是作者对使用者的额外约定与郑重声明，请务必遵守。
 
-**ARTEX 仅供个人学习、代码研究与本地技术验证使用，不得用于对任何线上系统或网站发起实际测试。**
+**ARTEX-RedTeam 仅供个人学习、代码研究与本地技术验证使用，不得用于对任何线上系统或网站发起实际测试。**
 
 ### 允许使用范围
 

@@ -243,9 +243,9 @@ func (s *Server) updateCheck(w http.ResponseWriter, r *http.Request) {
 		out["published_at"] = rel.PublishedAt.Format(time.RFC3339)
 	}
 
-	asset := selfupdate.AssetName(latest, runtime.GOOS, runtime.GOARCH)
+	a, asset, ok := selfupdate.PlatformAsset(rel, latest, runtime.GOOS, runtime.GOARCH)
 	out["asset"] = asset
-	if a, ok := rel.FindAsset(asset); ok {
+	if ok {
 		out["asset_available"] = true
 		out["size"] = a.Size
 	} else {

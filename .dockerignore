@@ -3,8 +3,12 @@
 web/.next
 web/out
 server/webui/dist
+# 单二进制产物（新名 + 旧名兼容）
 /artex
+/artex-redteam
+# 运行时数据目录（宿主 ./data 保留兼容，新目录 data-redteam）
 data
+data-redteam
 *.db
 transcripts
 bench/kv
