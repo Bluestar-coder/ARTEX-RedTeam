@@ -60,3 +60,6 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
+
+// norma（agent SDK）源码内置于 third_party/norma，避免依赖上游仓库。
+replace github.com/Autumn-27/norma => ./third_party/norma
