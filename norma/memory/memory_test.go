@@ -1,5 +1,3 @@
-//go:build norma_upstream
-
 package memory
 
 import (

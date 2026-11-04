@@ -14,6 +14,16 @@
 - **登录用户名改为 `ARTEX-RedTeam`**（旧的 `ARTEX` 仍接受），登录 cookie 改为 `artex_redteam_token`；升级后需重新登录一次。
 - `start.sh` / `start.bat` 优先启动 `artex-redteam`，缺失时回退 `artex`，老部署换装后无需改名即可继续运行。
 
+### norma
+
+#### 修复
+
+- **上游 7 个被 `//go:build norma_upstream` 排除的测试已按根因修复，并默认参与 `go test ./...`**，不再把 norma 的回归风险藏在构建标签后面：
+  - `llm`：`TestDoStreamHonorsConfiguredRetries` 直接调用内部 `doStream` 却没设置 `Config.HTTPClient`（生产路径由 `NewProvider` 注入）→ 修正测试初始化；
+  - `noa`：`GrowthFloor` 与 `GrowthCap` 相等导致自适应增长恒为 50K → 拆开默认值并随窗口缩放；cadence 门槛改为以窗口 1/8 封顶，修复小窗口下抑制无法解除的问题；
+  - `noaadapter`：40K 窗口长会话越界（随上述 pacing 修复）、溢出学习 `ParseOverflowWindow`/`learn` 无调用方（在 `Compactor.IsOverflow` 中接线）、小窗口 tier 2 已可用（边界测试改为正断言 `TestTierTwoFiresOnSmallWindows`）。
+- `norma/VENDORED.md` 同步更新差异说明与升级步骤（不再打测试标签）。
+
 ### 安全
 
 #### 修复

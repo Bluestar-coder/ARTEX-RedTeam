@@ -1,5 +1,3 @@
-//go:build norma_upstream
-
 package plan
 
 import (
