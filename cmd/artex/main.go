@@ -1,6 +1,6 @@
-// Command artex runs the ARTEX backend: the dual SQLite graph stores,
-// the event-driven exploration engine, and the JSON HTTP API consumed by the
-// shadcn/ui frontend.
+// Command artex runs the ARTEX backend: the PostgreSQL-backed asset and
+// exploration graphs, the event-driven exploration engine, and the JSON HTTP
+// API consumed by the shadcn/ui frontend (embedded with -tags embedui).
 package main
 
 import (
@@ -53,7 +53,7 @@ func main() {
 func run() int {
 	var (
 		addr    = flag.String("addr", ":8787", "HTTP listen address")
-		dataDir = flag.String("data", filepath.Join(config.BaseDir(), "data"), "data directory for SQLite stores (default: data/ next to the executable)")
+		dataDir = flag.String("data", filepath.Join(config.BaseDir(), "data"), "data directory for the traffic index, JWT key and workspaces (default: data/ next to the executable)")
 		proxy   = flag.String("proxy", "127.0.0.1:8788", "traffic recording proxy address (empty to disable)")
 	)
 	flag.Parse()

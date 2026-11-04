@@ -308,7 +308,7 @@ func wireTools(pg *db.DB, domainReg map[string]actool.CoreTool) {
 		// interactive shell: gated purely by the agent's interactive_shell flag (like
 		// web_search), NOT by tools-table binding. When on, inject the 5 shell_* tools
 		// and COUPLE the Bash description addendum so it points at shell_open — and never
-		// dangles when off. See docs/交互式shell设计.md §14.2.
+		// dangles when off. （持久 PTY 会话的工具族与 Bash 提示词联动。）
 		if !actool.InteractiveShellDisabled() {
 			if a, err := pg.GetAgentByKey(agentKey); err == nil && a != nil && a.InteractiveShell {
 				out = append(out, actool.ShellSessionTools()...)

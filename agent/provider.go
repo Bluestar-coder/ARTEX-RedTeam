@@ -1,6 +1,5 @@
 // Package agent wires real LLM-driven planner and work agents (on top of the
-// agent-core SDK) to the dual SQLite graph. See docs/ARTEX-架构设计.md
-// §4.3 (planner) and §4.4 (work agent).
+// embedded norma SDK) to the PostgreSQL asset and exploration graphs.
 //
 // Provider configuration is read from the environment so the system runs with
 // any Anthropic- or OpenAI-format endpoint. If no key is configured, FromEnv
