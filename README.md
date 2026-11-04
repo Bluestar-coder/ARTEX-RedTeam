@@ -8,7 +8,7 @@ AI 自主渗透测试系统（Go 后端 + Next.js 前端）
 
 > **本仓库是 ARTEX 的独立二次开发版本**（`Bluestar-coder/ARTEX-RedTeam`）。原始项目仓库已被原作者删除，本仓库在此代码基础上继续维护，协议仍为 AGPL-3.0。
 >
-> 本仓库不沿用上游的任何发布物：Docker 镜像、Release 压缩包、演示站都不再指向原来的项目。自 v0.4.0 起，Release 压缩包与 Docker 镜像（`bluestarcoder/artex-redteam`，amd64/arm64）均由本仓库 CI 构建发布。
+> 本仓库不沿用上游的任何发布物：Docker 镜像、Release 压缩包、演示站都不再指向原来的项目。自 v0.4.1 起，Release 压缩包与 Docker 镜像（`bluestarcoder/artex-redteam`，amd64/arm64）均由本仓库 CI 构建发布。
 
 ---
 
@@ -109,7 +109,7 @@ docker compose pull artex && docker compose up -d
 
 到 [Releases](https://github.com/Bluestar-coder/ARTEX-RedTeam/releases) 下载对应平台的 zip，解压后得到 `artex` + `start.sh`（Windows 为 `start.bat`）+ `skills/` + `config.example.json`：
 
-> 本仓库尚未发布 Release。需要预编译包时，先执行 `./build.sh --release` 在本地 `dist/` 生成压缩包（见方式五）。
+> 需要其他平台或自定义构建时，可执行 `./build.sh --release` 在本地 `dist/` 生成压缩包（见方式五）。
 
 ```bash
 cp config.example.json config.json   # 填好 database 连接
@@ -155,7 +155,7 @@ ARTEX_TARGETS=linux/amd64,windows/amd64 ./build.sh --release
 
 ### 方式一：页面一键更新（推荐）
 
-> ⚠️ 当前一键更新**不可用**：`selfupdate/github.go` 里的仓库常量仍指向已删除的原上游（`Autumn-27/artex`），且本仓库尚未发布 Release。改用方式二～五升级；把该常量改成本仓库并发布 Release 后即可恢复。
+一键更新从本仓库的 GitHub Releases 获取最新正式版（`v0.4.1` 起可用），按当前平台选包、校验 `SHA256SUMS` 后换装。
 
 在 **系统配置** 页（侧边栏「系统配置」→ `/system/settings`）的**版本与更新**卡片里，可以直接检查并安装新版本，无需登录服务器。
 
