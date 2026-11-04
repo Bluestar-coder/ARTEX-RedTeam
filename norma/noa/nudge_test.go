@@ -1,5 +1,3 @@
-//go:build norma_upstream
-
 package noa
 
 import (
@@ -29,7 +27,8 @@ func nudgeAt(t *testing.T, tokenCount, t1Tokens int, mutate func(*CompressionSta
 
 func TestResolveAdaptiveGrowth(t *testing.T) {
 	n := DefaultConfig(200000).Nudge
-	// min(50000, max(50000, round(200000*0.05)=10000)) = 50000
+	// min(50000, max(4000, round(200000*0.25)=50000)) = 50000 — the 200K
+	// window keeps the historical growth unit.
 	if got := resolveAdaptiveGrowth(200000, n); got != 50000 {
 		t.Fatalf("adaptive growth for a 200k window = %d, want 50000", got)
 	}

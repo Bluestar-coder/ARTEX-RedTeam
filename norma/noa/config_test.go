@@ -1,5 +1,3 @@
-//go:build norma_upstream
-
 package noa
 
 import (
@@ -20,7 +18,7 @@ func TestDefaultConfigMatchesSpec(t *testing.T) {
 		{"MaxContextLimitPct", c.Nudge.MaxContextLimitPct, 0.75},
 		{"MinContextLimitPct", c.Nudge.MinContextLimitPct, 0.45},
 		{"EmergencyThresholdPct", c.Nudge.EmergencyThresholdPct, 0.95},
-		{"GrowthFloor", c.Nudge.GrowthFloor, 50000},
+		{"GrowthFloor", c.Nudge.GrowthFloor, 4000},
 		{"GrowthCap", c.Nudge.GrowthCap, 50000},
 		{"MinGrowthFloor", c.Nudge.MinGrowthFloor, 20000},
 		{"MinGrowthRatio", c.Nudge.MinGrowthRatio, 0.45},

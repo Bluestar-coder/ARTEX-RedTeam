@@ -66,7 +66,7 @@ func DecideNudge(in DecideNudgeInput) NudgeDecision {
 	}
 
 	adaptive := resolveAdaptiveGrowth(limit, cfg.Nudge)
-	floor := growthFloorOf(adaptive, cfg.Nudge)
+	floor := NudgeGrowthFloor(cfg)
 	minBen := cfg.minPressureBenefit()
 
 	overLimit := usage >= cfg.Nudge.MaxContextLimitPct
@@ -321,8 +321,19 @@ func stampNudge(state *CompressionState, cfg Config, tokenCount int, d NudgeDeci
 }
 
 // NudgeGrowthFloor is the cadence step a host uses to decide when a suppressed
-// nudge may resume. Reusing the same unit the pacing already speaks in keeps
-// the behaviour predictable and avoids one more knob to tune.
+// nudge may resume, and the growth gate below the pressure band.
+//
+// Reusing the same unit the pacing already speaks in keeps the behaviour
+// predictable and avoids one more knob to tune. It is capped at an eighth of the
+// window: a cadence step that is a large fraction of the window cannot lift
+// suppression (or clear the growth gate) before the next request overflows, and
+// the absolute defaults below were sized for a 200K window.
 func NudgeGrowthFloor(cfg Config) int {
-	return growthFloorOf(resolveAdaptiveGrowth(cfg.ModelContextLimit, cfg.Nudge), cfg.Nudge)
+	floor := growthFloorOf(resolveAdaptiveGrowth(cfg.ModelContextLimit, cfg.Nudge), cfg.Nudge)
+	if cfg.ModelContextLimit > 0 {
+		if windowCap := cfg.ModelContextLimit / 8; floor > windowCap {
+			floor = windowCap
+		}
+	}
+	return floor
 }

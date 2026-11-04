@@ -86,6 +86,15 @@ type Config struct {
 }
 
 // DefaultConfig returns the tuned defaults for a given context window.
+//
+// Pacing defaults scale with the window: a cadence gate expressed in absolute
+// tokens (the historical flat 20K) is 50% of a 40K window, so once suppression
+// engages near the ceiling it can never lift before the request overflows.
+// Keeping GrowthFloor < GrowthCap also keeps GrowthRatio meaningful — with an
+// equal floor and cap the "adaptive" growth was a constant 50K regardless of
+// the window. GrowthRatio is pinned so windows of 128K and up still resolve to
+// the historical 50K growth unit (the tier-ladder tests depend on that);
+// smaller windows get a proportionally tighter one.
 func DefaultConfig(modelContextLimit int) Config {
 	return Config{
 		ModelContextLimit: modelContextLimit,
@@ -99,8 +108,8 @@ func DefaultConfig(modelContextLimit int) Config {
 			MaxContextLimitPct:    0.75,
 			MinContextLimitPct:    0.45,
 			EmergencyThresholdPct: 0.95,
-			GrowthRatio:           0.05,
-			GrowthFloor:           50_000,
+			GrowthRatio:           0.5,
+			GrowthFloor:           4_000,
 			GrowthCap:             50_000,
 			MinGrowthFloor:        20_000,
 			MinGrowthRatio:        0.45,
