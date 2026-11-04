@@ -16,7 +16,7 @@ services:
 
   artex:
     build: .
-    image: artex:${ARTEX_TAG:-latest}
+    image: ${ARTEX_IMAGE:-bluestarcoder/artex:${ARTEX_TAG:-latest}}
     depends_on:
       postgres:
         condition: service_healthy

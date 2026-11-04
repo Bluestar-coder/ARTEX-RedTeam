@@ -8,7 +8,7 @@ AI 自主渗透测试系统（Go 后端 + Next.js 前端）
 
 > **本仓库是 ARTEX 的独立二次开发版本**（`Bluestar-coder/ARTEX-RedTeam`）。原始项目仓库已被原作者删除，本仓库在此代码基础上继续维护，协议仍为 AGPL-3.0。
 >
-> 本仓库不沿用上游的任何发布物：Docker 镜像、Release 压缩包、演示站都不再指向原来的项目，需要在本仓库自行构建。
+> 本仓库不沿用上游的任何发布物：Docker 镜像、Release 压缩包、演示站都不再指向原来的项目。自 v0.4.0 起，Release 压缩包与 Docker 镜像（`bluestarcoder/artex`，amd64/arm64）均由本仓库 CI 构建发布。
 
 ---
 
@@ -92,7 +92,13 @@ docker compose up -d --build  # 本地构建 artex 镜像 + 启动 postgres
 # → http://localhost:8787
 ```
 
-镜像由本仓库 `Dockerfile` 本地构建（本仓库不提供可拉取的官方镜像）。镜像已含常用工具（ripgrep/curl/vim/npm/nmap…）；`./skills` 与 `./data` 以绑定挂载持久化。
+镜像默认由本仓库 `Dockerfile` 本地构建；也可直接拉取 CI 发布的镜像（`bluestarcoder/artex`，amd64/arm64）：
+
+```bash
+docker compose pull artex && docker compose up -d
+```
+
+镜像已含常用工具（ripgrep/curl/vim/npm/nmap…）；`./skills` 与 `./data` 以绑定挂载持久化。
 
 远程 MCP 可在系统设置中选择 `http`（Streamable HTTP）或 `sse`（旧版 SSE）。
 旧版 SSE 服务通常使用 `GET /sse` 建立事件流，再通过服务返回的
