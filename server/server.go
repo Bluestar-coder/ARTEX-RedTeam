@@ -46,6 +46,17 @@ type Server struct {
 	skillDir string // root directory for skill subdirectories
 	jwtKey   []byte // HS256 signing key loaded from / generated into dataDir/jwt.key
 
+	// authPVMu guards the cached password version (pv) that every JWT is bound
+	// to; cachePasswordVersion refreshes it on init / password change.
+	authPVMu     sync.RWMutex
+	authPV       string
+	authPVLoaded bool
+	authPVAt     time.Time
+	// authLimitOnce lazily builds the per-IP auth endpoint limiter, so tests that
+	// construct a bare &Server{} still work.
+	authLimitOnce sync.Once
+	authLimiter   *ipLimiter
+
 	// concMu serializes concurrency-cap decisions (admission + reconcile) so a
 	// scheduler tick and an HTTP settings change / task creation can't both count
 	// free slots off the same snapshot and over-promote past the limit.
@@ -651,11 +662,14 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	s.registerSideRoutes(mux)
 
-	// Auth routes — exempt from JWT check (handled in requireAuth)
+	// Auth routes. status/init/login are on the exact publicAPIPaths allowlist;
+	// change-password goes through the normal JWT check. All three state-changing
+	// endpoints are rate-limited per client IP so a burst cannot turn a transient
+	// database error into an initialization window.
 	mux.HandleFunc("GET /api/auth/status", s.authStatus)
-	mux.HandleFunc("POST /api/auth/init", s.authInit)
-	mux.HandleFunc("POST /api/auth/login", s.authLogin)
-	mux.HandleFunc("POST /api/auth/change-password", s.authChangePassword)
+	mux.HandleFunc("POST /api/auth/init", s.limitAuth(s.authInit))
+	mux.HandleFunc("POST /api/auth/login", s.limitAuth(s.authLogin))
+	mux.HandleFunc("POST /api/auth/change-password", s.limitAuth(s.authChangePassword))
 
 	mux.HandleFunc("GET /api/health", s.health)
 	mux.HandleFunc("GET /api/stats", s.stats)
@@ -955,7 +969,13 @@ func (s *Server) Handler() http.Handler {
 // --- handlers ---
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{"ok": true, "service": "artex", "version": BuildVersion})
+	// 未认证只回答存活。服务名与版本号是扫描器最省事的指纹，认证后才给。
+	out := map[string]any{"ok": true}
+	if verifyJWT(extractToken(r), s.jwtKey, s.currentPasswordVersion()) {
+		out["service"] = "artex-redteam"
+		out["version"] = BuildVersion
+	}
+	writeJSON(w, 200, out)
 }
 
 func (s *Server) stats(w http.ResponseWriter, r *http.Request) {

@@ -200,6 +200,7 @@ ARTEX_REDTEAM_TARGETS=linux/amd64,windows/amd64 ./build.sh --release
 | 登录用户名 | 新的 `ARTEX-RedTeam` 与旧的 `ARTEX` 都接受；登录 cookie 从 `artex_token` 改为 `artex_redteam_token`，升级后需**重新登录一次** |
 | 二进制名 | 新安装为 `artex-redteam`；`start.sh` / `start.bat` 会优先启动 `artex-redteam`，找不到再回退 `artex`，老目录无需改名 |
 | 发布包 | 新版本资产名为 `artex-redteam-<version>-<os>-<arch>.zip`。**旧版（≤0.4.x）的一键更新不认识新资产名**，从老版本升级请手动下载一次 zip 覆盖二进制 |
+| 管理端口 | 默认监听从 `:8787` 改为 `127.0.0.1:8787`，compose 端口映射也改为 `127.0.0.1:8787:8787`；远程访问请显式传 `-addr :8787` 并改回端口映射，或加 VPN / 带认证的反向代理 |
 | Docker 项目 | compose 项目名取自目录名，`pgdata` 具名卷按项目名隔离；**请沿用原目录升级**，把仓库 clone/改名到新目录会得到一个新的空数据库卷 |
 
 ### 方式一：页面一键更新（推荐）
@@ -280,11 +281,13 @@ CGO_ENABLED=0 go build -tags embedui -o artex-redteam ./cmd/artex-redteam
 
 **并发**：每个任务的 work agent 数在「系统设置」里配置（默认 3）。
 
-**常用参数**：`./start.sh -addr :8787 -proxy :8788`（`-addr` 前端+API，`-proxy` 流量录制代理）。启动脚本会把参数原样透传给 `artex-redteam`。
+**常用参数**：`./start.sh -addr 127.0.0.1:8787 -proxy 127.0.0.1:8788`（`-addr` 前端+API，`-proxy` 流量录制代理）。启动脚本会把参数原样透传给 `artex-redteam`。
+
+> **监听地址默认是回环 `127.0.0.1:8787`，Docker Compose 的端口映射同样只绑回环。** 管理面等价于执行权限（能配 MCP、能造 bash 工具），所以默认不对外暴露。需要从其它机器访问时：裸二进制显式传 `-addr :8787`，Docker 把 compose 的 `ports` 改回 `8787:8787`；无论哪种，前面都应有 VPN、SSH 隧道或带认证的反向代理。
 
 ### 反向代理部署（HTTPS / 只开放 443）
 
-前端和 API/SSE 都由同一个后端端口（默认 `:8787`）提供，实时活动流默认走**同源**地址，因此**无需配置 `NEXT_PUBLIC_SSE_BASE`**，公网只开放 443、把 8787 留在内网即可。
+前端和 API/SSE 都由同一个后端端口（默认 `127.0.0.1:8787`）提供，实时活动流默认走**同源**地址，因此**无需配置 `NEXT_PUBLIC_SSE_BASE`**，公网只开放 443、把 8787 留在内网即可。
 
 SSE 是长连接 + 持续推送，反代**必须关闭缓冲**，否则浏览器能连上却收不到事件（表现为活动流一直转圈）。Nginx 示例：
 
@@ -337,6 +340,27 @@ server {
 - 前端：`cd web && npm run dev`（`/api` 反代到后端，带热更新）
 - 测试：`go test ./...`
 - Mock 预览（无后端）：`cd web && NEXT_PUBLIC_MOCK=1 npm run dev`
+
+---
+
+## 安全加固
+
+本项目本身是攻击工具，管理面一旦被拿走就等于把 root 交出去。针对公开披露的 ARTEX 利用链（未认证接管 → MCP stdio 命令执行），默认行为已按下面的方式收紧：
+
+| 风险点 | 当前行为 |
+| --- | --- |
+| 初始化接口 fail-open | `/api/auth/init` 读数据库出错一律 503，绝不把"读不到"当成"没设置"；写入用 `INSERT ... ON CONFLICT DO NOTHING`，已有密码时无法被覆盖 |
+| 免认证路径过宽 | 只有 `status` / `init` / `login` / `health` 四个**精确路径**免认证，不再用 `/api/auth/` 前缀放行 |
+| 暴力尝试 / 并发打满 | 三个会改状态的认证接口按来源 IP 限流（默认 12 次/分钟、突发 10），可用 `ARTEX_REDTEAM_AUTH_RATE_PER_MIN` 调整 |
+| 改密后旧 token 仍有效 | JWT 携带密码版本（`pv`），改密后所有旧 token **立即失效**，当前会话自动换发新 token |
+| 版本号指纹 | 未认证的 `/api/health` 只返回 `{"ok":true}`，认证后才带 `service` / `version` |
+| 管理口默认暴露 | 默认只监听 `127.0.0.1:8787`；绑定非回环地址时启动日志会告警 |
+| MCP stdio 变 webshell | 拒绝把 `sh`/`bash`/`powershell` 等 shell 作为 stdio 启动命令，也拒绝 `python -c` 这类内联代码参数；确需时设置 `ARTEX_REDTEAM_ALLOW_STDIO_SHELL=1` |
+| 签名密钥可被文件管理器读到 | `jwt.key` 存放在程序目录而不是可浏览的 data 工作区，老位置会一次性迁移并删除 |
+
+> 这些改动只能收缩"平台自身被打"的面。另有一条设计级事实必须清楚：**有管理员会话 = 有命令执行**（worker 需要跑 Bash，MCP stdio 与自定义工具也都能起进程）。所以对外部署务必：跑在低权限用户下、前面加认证反代或 VPN、定期审计 `mcp_servers` 与自定义 `tools`。
+
+**供应链提醒。** 2026-11 的公开事件中，第三方 fork `trhhubsd/ARTEX` 推荐的 `tomicdd/artex` 镜像被植入未认证 WebShell：登录接口多读一个 `Captcha` 字段，值以 `!` 开头就把剩余内容交给 `sh -c` 执行并回显。本仓库的源码与 CI 构建的镜像不含该逻辑——登录/初始化/改密接口只接受固定字段，多余字段直接 400——但这类事件值得记住：只从本仓库 CI（`bluestarcoder/artex-redteam`）或自己的本地 `docker compose build` 取镜像，并核对 digest；不要使用来源不明的预构建镜像。
 
 ---
 

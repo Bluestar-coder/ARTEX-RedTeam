@@ -4,8 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"path/filepath"
+	"strings"
 	"time"
 
+	"github.com/Bluestar-coder/ARTEX-RedTeam/config"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/db"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/mcphttp"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/norma/mcp"
@@ -27,6 +30,9 @@ func connectMCP(ctx context.Context, m *db.MCPServer) (mcpClient, error) {
 		if m.Command == "" {
 			return nil, fmt.Errorf("stdio 传输缺少命令")
 		}
+		if err := validateStdioCommand(m.Command, jsonStrSlice(m.Args)); err != nil {
+			return nil, err
+		}
 		return mcp.NewStdioClient(ctx, m.Name, m.Command, jsonStrMap(m.Env), jsonStrSlice(m.Args)...)
 	case "http":
 		if m.URL == "" {
@@ -42,6 +48,87 @@ func connectMCP(ctx context.Context, m *db.MCPServer) (mcpClient, error) {
 	default:
 		return nil, fmt.Errorf("未知传输方式 %q", m.Transport)
 	}
+}
+
+// shellInterpreters 是「只用来执行内联命令」的解释器。把这类程序配成 stdio MCP
+// 服务器没有正当用途，却是把「配置一条 MCP」变成 webshell 的标准做法。
+var shellInterpreters = map[string]bool{
+	"sh": true, "bash": true, "zsh": true, "dash": true, "ksh": true, "ash": true,
+	"busybox": true, "cmd": true, "cmd.exe": true,
+	"powershell": true, "powershell.exe": true, "pwsh": true, "pwsh.exe": true,
+}
+
+// inlineCodeInterpreters 正常可以作为 MCP 服务器（python server.py / node
+// server.js），只有带 -c / -e 的内联代码形态才和 shell 一样危险。
+var inlineCodeInterpreters = map[string]bool{
+	"python": true, "python3": true, "perl": true, "ruby": true, "node": true, "php": true,
+}
+
+var inlineCodeFlags = map[string]bool{
+	"-c": true, "-e": true, "-r": true, "--eval": true, "-command": true, "-encodedcommand": true,
+	"/c": true, "/k": true,
+}
+
+// stdioWrappers are launchers whose only job is to run another program. "env sh
+// -c …" and "nohup bash -c …" are the obvious ways around a naive basename
+// check, so peel them off (bounded depth) before classifying the real command.
+var stdioWrappers = map[string]bool{
+	"env": true, "nohup": true, "setsid": true, "command": true, "exec": true, "time": true,
+}
+
+// unwrapStdioCommand strips launcher wrappers and their options, returning the
+// underlying command and arguments. Bounded to avoid pathological nesting.
+func unwrapStdioCommand(command string, args []string) (string, []string) {
+	base := strings.ToLower(filepath.Base(strings.TrimSpace(command)))
+	for depth := 0; depth < 4 && stdioWrappers[base]; depth++ {
+		i := 0
+		for i < len(args) {
+			a := args[i]
+			if a == "--" {
+				i++
+				break
+			}
+			if strings.HasPrefix(a, "-") || (base == "env" && strings.Contains(a, "=")) {
+				// options that take a separate value
+				if (a == "-u" || a == "--unset" || a == "-P" || a == "--chdir") && i+1 < len(args) {
+					i += 2
+					continue
+				}
+				i++
+				continue
+			}
+			break
+		}
+		if i >= len(args) {
+			return base, nil
+		}
+		base = strings.ToLower(filepath.Base(strings.TrimSpace(args[i])))
+		args = args[i+1:]
+	}
+	return base, args
+}
+
+// validateStdioCommand rejects the webshell shape "sh -c <payload>" for MCP stdio
+// servers. The transport is a legitimate local-exec feature (it is how npx /
+// uvx MCP servers start), so the check targets interpreters with inline code
+// rather than blocking subprocesses outright. Operators who genuinely need a
+// shell-backed MCP server can set ARTEX_REDTEAM_ALLOW_STDIO_SHELL=1.
+func validateStdioCommand(command string, args []string) error {
+	if config.Env("ALLOW_STDIO_SHELL") == "1" {
+		return nil
+	}
+	base, args := unwrapStdioCommand(command, args)
+	if shellInterpreters[base] {
+		return fmt.Errorf("stdio MCP 拒绝把 shell 解释器（%s）作为启动命令：这是 webshell 形态而非 MCP 服务器。如确需，设置 ARTEX_REDTEAM_ALLOW_STDIO_SHELL=1", base)
+	}
+	if inlineCodeInterpreters[base] {
+		for _, a := range args {
+			if inlineCodeFlags[strings.ToLower(strings.TrimSpace(a))] {
+				return fmt.Errorf("stdio MCP 拒绝内联代码参数（%s %s）：请改为启动具体的 MCP 服务器脚本。如确需，设置 ARTEX_REDTEAM_ALLOW_STDIO_SHELL=1", base, a)
+			}
+		}
+	}
+	return nil
 }
 
 // discoverAndCacheMCP connects to one MCP, lists its tools, and persists the tool

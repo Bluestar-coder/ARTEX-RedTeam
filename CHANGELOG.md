@@ -14,6 +14,19 @@
 - **登录用户名改为 `ARTEX-RedTeam`**（旧的 `ARTEX` 仍接受），登录 cookie 改为 `artex_redteam_token`；升级后需重新登录一次。
 - `start.sh` / `start.bat` 优先启动 `artex-redteam`，缺失时回退 `artex`，老部署换装后无需改名即可继续运行。
 
+### 安全
+
+#### 修复
+
+- **收紧认证面（对应公开披露的「未认证接管 → MCP stdio RCE」利用链）**：
+  - 免认证路径从 `/api/auth/` 前缀改为精确白名单（仅 `status` / `init` / `login` / `health`），新增的 auth handler 默认受 JWT 保护；
+  - `/api/auth/init`、`/api/auth/login`、`/api/auth/change-password` 按来源 IP 限流（默认 12 次/分钟、突发 10，可用 `ARTEX_REDTEAM_AUTH_RATE_PER_MIN` 调整），避免用高并发制造数据库错误窗口；
+  - JWT 增加密码版本声明 `pv`：改密后旧 token 立即失效，当前会话自动换发新 token；密码版本缓存 30 秒，兼容 `reset-password.sh` 这类带外改密；
+  - 未认证的 `/api/health` 不再返回服务名与版本号，抹掉最省事的指纹。
+- **管理端默认只监听回环地址**：`-addr` 默认值从 `:8787` 改为 `127.0.0.1:8787`，绑定非回环地址时启动日志告警。Docker 镜像内仍显式使用 `-addr :8787`，是否对外由 compose 端口映射决定；裸二进制需要远程访问时请显式传 `-addr :8787`。
+- **认证请求拒绝未知字段**：登录 / 初始化 / 改密只接受固定字段，多余字段返回 400——这是 2026-11 第三方镜像投毒事件（`Captcha` 字段触发 `sh -c`）的防御面。
+- **MCP stdio 拒绝 webshell 形态**：不再允许把 `sh`/`bash`/`zsh`/`powershell`/`cmd` 等 shell 解释器作为 stdio 启动命令，也拒绝 `python -c` / `node -e` 这类内联代码参数；确需时设置 `ARTEX_REDTEAM_ALLOW_STDIO_SHELL=1`。
+
 ## [0.3.15] - 2026-10-07
 
 ### 拦截

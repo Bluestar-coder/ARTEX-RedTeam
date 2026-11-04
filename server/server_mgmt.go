@@ -80,6 +80,17 @@ func pathInt(r *http.Request, name string) (int64, bool) {
 
 func decode(r *http.Request, v any) error { return json.NewDecoder(r.Body).Decode(v) }
 
+// decodeStrict is decode with unknown fields rejected. Auth payloads are fixed
+// and tiny, so rejecting extras is free — and it turns the shape of the 2026
+// supply-chain backdoor (a login body carrying an extra "Captcha" field that a
+// tampered image interpreted as a shell command) into a clean 400 instead of
+// something a future handler might silently honour.
+func decodeStrict(r *http.Request, v any) error {
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	return dec.Decode(v)
+}
+
 // ---------- tasks (delete) ----------
 
 const taskDeleteDrainTimeout = 10 * time.Second
@@ -869,6 +880,15 @@ func (s *Server) pgSaveMCP(w http.ResponseWriter, r *http.Request) {
 	if err := decode(r, &m); err != nil {
 		writeErr(w, 400, err.Error())
 		return
+	}
+	// Reject the webshell shape before the row is even stored, so the UI gets a
+	// clear error instead of a saved-but-never-connectable entry. connectMCP
+	// repeats the check because rows can also arrive via direct DB writes.
+	if m.Transport == "stdio" {
+		if err := validateStdioCommand(m.Command, jsonStrSlice(m.Args)); err != nil {
+			writeErr(w, 400, err.Error())
+			return
+		}
 	}
 	isNew := m.ID == 0
 	id, err := pg.SaveMCP(&m)

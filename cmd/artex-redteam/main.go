@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -52,12 +53,18 @@ func main() {
 
 func run() int {
 	var (
-		addr    = flag.String("addr", ":8787", "HTTP listen address")
+		addr    = flag.String("addr", "127.0.0.1:8787", "HTTP listen address (default loopback; use :8787 to expose on all interfaces)")
 		dataDir = flag.String("data", config.DefaultDataDir(), "data directory for the traffic index, JWT key and workspaces (default: data-redteam/ next to the executable)")
 		proxy   = flag.String("proxy", "127.0.0.1:8788", "traffic recording proxy address (empty to disable)")
 		proxyGW = flag.String("proxy-pool-gateway", "127.0.0.1:8789", "proxy-pool forwarding gateway address (empty to disable 入口C)")
 	)
 	flag.Parse()
+
+	// 默认只监听回环：管理面等价于 root（能配 MCP、能造 bash 工具），不该
+	// 在没设防火墙的机器上默认暴露。确需对外时显式传 -addr :8787。
+	if host, _, err := net.SplitHostPort(*addr); err == nil && (host == "" || host == "0.0.0.0" || host == "::") {
+		log.Printf("[warn] 管理端监听在非回环地址 %s：请确保前面有 VPN、SSH 隧道或带认证的反向代理", *addr)
+	}
 
 	// Data directory: adopt a pre-rename data/ directory next to the binary so an
 	// in-place upgrade keeps jwt.key, the traffic index and workspaces. Only runs

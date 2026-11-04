@@ -2,6 +2,8 @@ package server
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"math/big"
@@ -94,24 +96,109 @@ func loadOrCreateJWTKey(keyDir, dataDir string) ([]byte, error) {
 	return buf, nil
 }
 
+// tokenClaims 在标准声明之外带上密码版本（pv）。
+//
+// pv 是「当前 bcrypt 哈希」的短哈希：密码一改，pv 就变，签发于旧密码的
+// token 全部立即失效。否则改完密码后，攻击者手里的旧 token 还能用满 7 天。
+type tokenClaims struct {
+	jwt.RegisteredClaims
+	PV string `json:"pv,omitempty"`
+}
+
+// passwordVersion 把存储的密码哈希折叠成一个不可逆的短版本号。
+// 空哈希（尚未初始化）返回空串，此时不做版本校验。
+func passwordVersion(hash string) string {
+	if hash == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(hash))
+	return hex.EncodeToString(sum[:8])
+}
+
 // signJWT issues a 7-day HS256 token for user ARTEX-RedTeam.
-func signJWT(key []byte) (string, error) {
-	return jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
-		Subject:   authUsername,
-		ExpiresAt: jwt.NewNumericDate(time.Now().Add(jwtTTL)),
-		IssuedAt:  jwt.NewNumericDate(time.Now()),
+// It carries no password version and exists for tests / legacy call sites;
+// production issuance goes through signJWTWithPV.
+func signJWT(key []byte) (string, error) { return signJWTWithPV(key, "") }
+
+func signJWTWithPV(key []byte, pv string) (string, error) {
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, tokenClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   authUsername,
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(jwtTTL)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+		PV: pv,
 	}).SignedString(key)
 }
 
 // verifyJWT returns true when tokenStr is a valid, non-expired HS256 token.
-func verifyJWT(tokenStr string, key []byte) bool {
-	t, err := jwt.Parse(tokenStr, func(t *jwt.Token) (any, error) {
+// wantPV is the password version currently bound to the stored password. An
+// empty value on either side means "legacy token" or "not initialised yet":
+// the signature is still the gate, so those stay accepted for compatibility
+// with tokens issued before the pv claim existed.
+func verifyJWT(tokenStr string, key []byte, wantPV string) bool {
+	var claims tokenClaims
+	t, err := jwt.ParseWithClaims(tokenStr, &claims, func(t *jwt.Token) (any, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method")
 		}
 		return key, nil
 	})
-	return err == nil && t.Valid
+	if err != nil || !t.Valid {
+		return false
+	}
+	if claims.PV != "" && wantPV != "" && claims.PV != wantPV {
+		return false
+	}
+	return true
+}
+
+// authPVCacheTTL bounds how long a password version can stay cached. The cache
+// exists so verification does not hit the DB on every request; the TTL exists
+// because the password can also be changed out-of-band (reset-password.sh writes
+// the hash straight into the DB), and a permanent cache would then keep accepting
+// tokens from the old password or reject freshly issued ones.
+const authPVCacheTTL = 30 * time.Second
+
+// currentPasswordVersion returns the pv bound to the stored password. It is
+// cached (RLock in the steady state) and refreshed at most once per TTL. On a
+// read error it keeps the last known value, or "" if none — the caller then
+// skips the version check, but the token still has to be correctly signed.
+func (s *Server) currentPasswordVersion() string {
+	s.authPVMu.RLock()
+	if s.authPVLoaded && time.Since(s.authPVAt) < authPVCacheTTL {
+		v := s.authPV
+		s.authPVMu.RUnlock()
+		return v
+	}
+	s.authPVMu.RUnlock()
+
+	s.authPVMu.Lock()
+	defer s.authPVMu.Unlock()
+	if s.authPVLoaded && time.Since(s.authPVAt) < authPVCacheTTL {
+		return s.authPV
+	}
+	if s.m == nil || s.m.pg == nil {
+		return s.authPV
+	}
+	hash, _, err := s.m.pg.GetSetting(authPassKey)
+	if err != nil {
+		return s.authPV
+	}
+	s.authPV = passwordVersion(hash)
+	s.authPVLoaded = true
+	s.authPVAt = time.Now()
+	return s.authPV
+}
+
+// cachePasswordVersion records the pv of a hash we just wrote, so the next
+// request does not have to round-trip to the DB.
+func (s *Server) cachePasswordVersion(hash string) {
+	s.authPVMu.Lock()
+	s.authPV = passwordVersion(hash)
+	s.authPVLoaded = true
+	s.authPVAt = time.Now()
+	s.authPVMu.Unlock()
 }
 
 // extractToken reads the JWT from Authorization: Bearer header, the
@@ -130,12 +217,22 @@ func extractToken(r *http.Request) string {
 	return r.URL.Query().Get("token")
 }
 
+// publicAPIPaths are the only paths served without a JWT. Keep this an exact
+// allowlist rather than an "/api/auth/" prefix: a prefix means any future
+// handler added under auth is public by default, which is how one fail-open bug
+// turns into a full takeover. change-password validates the token itself and is
+// also fine to route through the middleware.
+var publicAPIPaths = map[string]struct{}{
+	"/api/auth/status": {},
+	"/api/auth/init":   {},
+	"/api/auth/login":  {},
+	"/api/health":      {},
+}
+
 // requireAuth wraps h with JWT validation.
-// /api/auth/* and /api/health are exempt.
 func (s *Server) requireAuth(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		p := r.URL.Path
-		if strings.HasPrefix(p, "/api/auth/") || p == "/api/health" {
+		if _, ok := publicAPIPaths[r.URL.Path]; ok {
 			h.ServeHTTP(w, r)
 			return
 		}
@@ -144,7 +241,7 @@ func (s *Server) requireAuth(h http.Handler) http.Handler {
 			writeErr(w, 401, "未授权")
 			return
 		}
-		if !verifyJWT(tok, s.jwtKey) {
+		if !verifyJWT(tok, s.jwtKey, s.currentPasswordVersion()) {
 			writeErr(w, 401, "token 无效或已过期")
 			return
 		}
@@ -187,7 +284,7 @@ func (s *Server) authInit(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Password string `json:"password"`
 	}
-	if err := decode(r, &req); err != nil || req.Password == "" {
+	if err := decodeStrict(r, &req); err != nil || req.Password == "" {
 		writeErr(w, 400, "密码不能为空")
 		return
 	}
@@ -212,7 +309,8 @@ func (s *Server) authInit(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 403, "密码已设置")
 		return
 	}
-	tok, err := signJWT(s.jwtKey)
+	s.cachePasswordVersion(string(hash))
+	tok, err := signJWTWithPV(s.jwtKey, passwordVersion(string(hash)))
 	if err != nil {
 		writeErr(w, 500, "token 生成失败")
 		return
@@ -221,14 +319,15 @@ func (s *Server) authInit(w http.ResponseWriter, r *http.Request) {
 }
 
 // POST /api/auth/change-password — changes the admin password. Requires a valid
-// token (this route is under /api/auth/* which requireAuth exempts, so the token
-// is validated here) AND the current password.
+// token AND the current password. Changing the password rotates the password
+// version, revoking every previously issued token; the response carries a fresh
+// one for the caller.
 func (s *Server) authChangePassword(w http.ResponseWriter, r *http.Request) {
 	pg := s.pg(w)
 	if pg == nil {
 		return
 	}
-	if !verifyJWT(extractToken(r), s.jwtKey) {
+	if !verifyJWT(extractToken(r), s.jwtKey, s.currentPasswordVersion()) {
 		writeErr(w, 401, "未授权")
 		return
 	}
@@ -236,7 +335,7 @@ func (s *Server) authChangePassword(w http.ResponseWriter, r *http.Request) {
 		OldPassword string `json:"old_password"`
 		NewPassword string `json:"new_password"`
 	}
-	if err := decode(r, &req); err != nil {
+	if err := decodeStrict(r, &req); err != nil {
 		writeErr(w, 400, "请求格式错误")
 		return
 	}
@@ -270,7 +369,15 @@ func (s *Server) authChangePassword(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "保存失败: "+err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"ok": true})
+	// 密码变了，pv 随之变化：所有旧 token 立即失效。给当前会话换发一枚新
+	// token，前端保存后不会被踢回登录页。
+	s.cachePasswordVersion(string(newHash))
+	tok, err := signJWTWithPV(s.jwtKey, passwordVersion(string(newHash)))
+	if err != nil {
+		writeErr(w, 500, "token 生成失败")
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true, "token": tok})
 }
 
 // POST /api/auth/login — validates username/password and returns a JWT.
@@ -283,7 +390,7 @@ func (s *Server) authLogin(w http.ResponseWriter, r *http.Request) {
 		Username string `json:"username"`
 		Password string `json:"password"`
 	}
-	if err := decode(r, &req); err != nil {
+	if err := decodeStrict(r, &req); err != nil {
 		writeErr(w, 400, "请求格式错误")
 		return
 	}
@@ -304,7 +411,8 @@ func (s *Server) authLogin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 401, "用户名或密码错误")
 		return
 	}
-	tok, err := signJWT(s.jwtKey)
+	s.cachePasswordVersion(hash)
+	tok, err := signJWTWithPV(s.jwtKey, passwordVersion(hash))
 	if err != nil {
 		writeErr(w, 500, "token 生成失败")
 		return
