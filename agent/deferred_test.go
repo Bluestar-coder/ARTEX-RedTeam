@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Autumn-27/norma/llm"
-	actool "github.com/Autumn-27/norma/tool"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/norma/llm"
+	actool "github.com/Bluestar-coder/ARTEX-RedTeam/norma/tool"
 )
 
 func TestDeferredSystem_NoGlobal(t *testing.T) {

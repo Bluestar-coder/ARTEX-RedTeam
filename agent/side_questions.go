@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Autumn-27/norma/agentcore"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/norma/agentcore"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/sidequestion"
 )
 

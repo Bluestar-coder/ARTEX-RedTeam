@@ -17,9 +17,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Autumn-27/norma/permission"
-	actool "github.com/Autumn-27/norma/tool"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/db"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/norma/permission"
+	actool "github.com/Bluestar-coder/ARTEX-RedTeam/norma/tool"
 )
 
 // 本文件实现自定义工具执行器(docs/自定义工具设计.md)。system=false 的 tools 行按

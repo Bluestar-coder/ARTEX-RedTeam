@@ -4,10 +4,10 @@ import (
 	"log"
 	"time"
 
-	"github.com/Autumn-27/norma/llm"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/agent"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/db"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/llmpool"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/norma/llm"
 )
 
 // LLM 轮询(故障转移)的服务端接线。设计见 docs/LLM轮询设计.md：

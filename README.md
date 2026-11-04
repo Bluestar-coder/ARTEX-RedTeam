@@ -291,7 +291,7 @@ server {
 
 ## 系统技术架构
 
-ARTEX 是一套 **LLM 多 agent 驱动的自主渗透系统**：Go 单体后端（内嵌 Next.js 前端）+ PostgreSQL，agent 能力由 `norma` SDK 提供（`agentcore` / `tool` / `permission` / `harness` / `memory` / `transcript`）。`norma` 源码已内置在 [`third_party/norma`](third_party/norma)（Apache-2.0），通过 `go.mod` 的 `replace` 指向本地副本，构建不依赖上游仓库。核心是**双图架构**，以及围绕它的两条自主性机制：**worker 间过程级信息交换**与 **planner 多轮共享 todolist 稳定攻击链路**。
+ARTEX 是一套 **LLM 多 agent 驱动的自主渗透系统**：Go 单体后端（内嵌 Next.js 前端）+ PostgreSQL，agent 能力由 `norma` SDK 提供（`agentcore` / `tool` / `permission` / `harness` / `memory` / `transcript`）。`norma` 源码已并入本仓库的 [`norma/`](norma) 目录（Apache-2.0），构建不依赖任何上游仓库。核心是**双图架构**，以及围绕它的两条自主性机制：**worker 间过程级信息交换**与 **planner 多轮共享 todolist 稳定攻击链路**。
 
 ### 总体分层
 

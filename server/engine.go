@@ -11,11 +11,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Autumn-27/norma/harness"
-	"github.com/Autumn-27/norma/llm"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/agent"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/db"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/intercept"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/norma/harness"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/norma/llm"
 	"github.com/jackc/pgx/v5/pgconn"
 )
 

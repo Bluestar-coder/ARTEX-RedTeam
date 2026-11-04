@@ -19,14 +19,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Autumn-27/norma/llm"
-	actool "github.com/Autumn-27/norma/tool"
-	"github.com/Autumn-27/norma/transcript"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/agent"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/db"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/intercept"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/llmpool"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/llmrec"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/norma/llm"
+	actool "github.com/Bluestar-coder/ARTEX-RedTeam/norma/tool"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/norma/transcript"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/report"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/traffic"
 )

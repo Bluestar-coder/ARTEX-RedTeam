@@ -8,10 +8,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/Autumn-27/norma/skill"
-	actool "github.com/Autumn-27/norma/tool"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/agent"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/db"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/norma/skill"
+	actool "github.com/Bluestar-coder/ARTEX-RedTeam/norma/tool"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/traffic"
 )
 

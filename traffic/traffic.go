@@ -30,9 +30,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/Autumn-27/norma/permission"
-	actool "github.com/Autumn-27/norma/tool"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/db"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/norma/permission"
+	actool "github.com/Bluestar-coder/ARTEX-RedTeam/norma/tool"
 	mproxy "github.com/lqqyt2423/go-mitmproxy/proxy"
 	_ "modernc.org/sqlite"
 )

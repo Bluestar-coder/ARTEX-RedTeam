@@ -20,12 +20,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Autumn-27/norma/agentcore"
-	"github.com/Autumn-27/norma/compaction"
-	"github.com/Autumn-27/norma/llm"
-	acperm "github.com/Autumn-27/norma/permission"
-	"github.com/Autumn-27/norma/transcript"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/llmrec"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/norma/agentcore"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/norma/compaction"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/norma/llm"
+	acperm "github.com/Bluestar-coder/ARTEX-RedTeam/norma/permission"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/norma/transcript"
 )
 
 // Config describes the LLM backend resolved from the environment.

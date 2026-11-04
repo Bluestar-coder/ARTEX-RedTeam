@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Autumn-27/norma/llm"
-	"github.com/Autumn-27/norma/transcript"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/db"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/norma/llm"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/norma/transcript"
 )
 
 type taskIDContextKey struct{}

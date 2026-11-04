@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Autumn-27/norma/llm"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/norma/llm"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/sidequestion"
 )
 

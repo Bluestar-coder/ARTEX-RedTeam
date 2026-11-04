@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"testing"
 
-	actool "github.com/Autumn-27/norma/tool"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/agent"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/db"
+	actool "github.com/Bluestar-coder/ARTEX-RedTeam/norma/tool"
 )
 
 func names(tools []actool.CoreTool) map[string]actool.CoreTool {

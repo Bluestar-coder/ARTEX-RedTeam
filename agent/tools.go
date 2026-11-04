@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"strings"
 
-	acperm "github.com/Autumn-27/norma/permission"
-	actool "github.com/Autumn-27/norma/tool"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/db"
+	acperm "github.com/Bluestar-coder/ARTEX-RedTeam/norma/permission"
+	actool "github.com/Bluestar-coder/ARTEX-RedTeam/norma/tool"
 )
 
 // compactIntents distills intents to {id, summary, state, asset_ids, parents,

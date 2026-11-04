@@ -6,10 +6,10 @@ import (
 	"log"
 	"time"
 
-	"github.com/Autumn-27/norma/mcp"
-	actool "github.com/Autumn-27/norma/tool"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/db"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/mcphttp"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/norma/mcp"
+	actool "github.com/Bluestar-coder/ARTEX-RedTeam/norma/tool"
 )
 
 // mcpClient is the shared surface of a connected MCP server (stdio, Streamable HTTP,

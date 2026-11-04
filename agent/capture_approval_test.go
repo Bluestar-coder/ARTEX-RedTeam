@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/Autumn-27/norma/agentcore"
-	"github.com/Autumn-27/norma/llm"
-	"github.com/Autumn-27/norma/permission"
-	"github.com/Autumn-27/norma/tool"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/db"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/guard"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/intercept"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/norma/agentcore"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/norma/llm"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/norma/permission"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/norma/tool"
 )
 
 // Exercise the actual SDK event -> hook -> execution -> result path. No real

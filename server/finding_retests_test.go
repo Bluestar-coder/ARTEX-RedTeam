@@ -14,11 +14,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Autumn-27/norma/llm"
-	actool "github.com/Autumn-27/norma/tool"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/agent"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/db"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/intercept"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/norma/llm"
+	actool "github.com/Bluestar-coder/ARTEX-RedTeam/norma/tool"
 )
 
 type retestProvider struct {

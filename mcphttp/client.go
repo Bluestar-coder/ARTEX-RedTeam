@@ -23,9 +23,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Autumn-27/norma/llm"
-	"github.com/Autumn-27/norma/permission"
-	actool "github.com/Autumn-27/norma/tool"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/norma/llm"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/norma/permission"
+	actool "github.com/Bluestar-coder/ARTEX-RedTeam/norma/tool"
 )
 
 const protocolVersion = "2025-06-18"
