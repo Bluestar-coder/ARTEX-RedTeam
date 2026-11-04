@@ -14,6 +14,9 @@ func TestMgmtAPI(t *testing.T) {
 	if err != nil {
 		t.Skipf("database unavailable (%v) — skipping management API test", err)
 	}
+	// 关闭连接池：-count=20 时每个 iteration 都会新建一个 Manager，不关会累积
+	// 到 PostgreSQL max_connections（100）后整包报 53300。
+	t.Cleanup(func() { _ = m.Close() })
 	if m.pg == nil {
 		t.Skip("postgres unavailable — skipping management API test")
 	}
