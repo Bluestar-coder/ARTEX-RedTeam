@@ -25,7 +25,7 @@ func callReadJSON(t *testing.T, tool actool.CoreTool, input string) any {
 	return out
 }
 
-func TestGraphOverviewExpandsAssociatedCompanyScope(t *testing.T) {
+func TestCompanyScopeAssetsReachGraphOverview(t *testing.T) {
 	d := testDB(t)
 	defer d.Close()
 
@@ -82,26 +82,14 @@ func TestGraphOverviewExpandsAssociatedCompanyScope(t *testing.T) {
 	if !ok {
 		t.Fatalf("coverage missing: %#v", overview["coverage"])
 	}
-	scopeRows, ok := coverage["scope"].([]map[string]any)
-	if !ok || len(scopeRows) != 1 {
-		t.Fatalf("task scope missing: %#v", coverage["scope"])
+	// graph_overview 在精简态势字段时删掉了 coverage.scope（范围根资产 + company
+	// 富化）；范围与公司规则改由 list_untested_assets / list_assets 查询。这里只
+	// 断言仍然保留的覆盖度量确实把 company 关联进来的资产算进了任务上下文。
+	if _, exists := coverage["scope"]; exists {
+		t.Fatalf("coverage.scope should stay removed (superseded by the list_* tools): %#v", coverage)
 	}
-	companyScope, ok := scopeRows[0]["company_scope"].([]map[string]any)
-	if !ok || len(companyScope) != len(inputs) {
-		t.Fatalf("company scope not expanded: %#v", scopeRows[0])
-	}
-	kinds := make(map[string]string, len(companyScope))
-	for _, rule := range companyScope {
-		kinds[fmt.Sprint(rule["kind"])] = fmt.Sprint(rule["value"])
-	}
-	for _, input := range inputs {
-		if kinds[input.Kind] != input.Value {
-			t.Errorf("scope %s=%q want %q", input.Kind, kinds[input.Kind], input.Value)
-		}
-	}
-	keywords, ok := scopeRows[0]["company_keywords"].([]string)
-	if !ok || len(keywords) != 1 || keywords[0] != keyword {
-		t.Fatalf("company keywords missing: %#v", scopeRows[0]["company_keywords"])
+	if den, _ := coverage["denominator"].(int); den < 1 {
+		t.Fatalf("company-linked asset missing from coverage denominator: %#v", coverage)
 	}
 	if hc, _ := coverage["host_count"].(int); hc < 1 {
 		t.Fatalf("company asset host not counted in agent context: %#v", coverage["host_count"])
