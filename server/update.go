@@ -214,6 +214,13 @@ func (s *Server) updateCheck(w http.ResponseWriter, r *http.Request) {
 		mode = "docker"
 	}
 	boot := bootUpdateState()
+	notice := boot.Detail
+	if s.volWarn != "" {
+		if notice != "" {
+			notice += "；"
+		}
+		notice += s.volWarn
+	}
 	out := map[string]any{
 		"current":     current,
 		"mode":        mode,
@@ -221,7 +228,7 @@ func (s *Server) updateCheck(w http.ResponseWriter, r *http.Request) {
 		"arch":        runtime.GOARCH,
 		"has_backup":  selfupdate.HasBackup(),
 		"repo":        selfupdate.Repo,
-		"boot_notice": boot.Detail,
+		"boot_notice": notice,
 		"rolled_back": boot.RolledBack,
 	}
 

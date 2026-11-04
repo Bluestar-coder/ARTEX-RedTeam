@@ -201,7 +201,7 @@ ARTEX_REDTEAM_TARGETS=linux/amd64,windows/amd64 ./build.sh --release
 | 二进制名 | 新安装为 `artex-redteam`；`start.sh` / `start.bat` 会优先启动 `artex-redteam`，找不到再回退 `artex`，老目录无需改名 |
 | 发布包 | 新资产名为 `artex-redteam-<version>-<os>-<arch>.zip`；同时发布旧名兼容包 `artex-<version>-<os>-<arch>.zip`（包内二进制名为 `artex`）。两套包都写入 `SHA256SUMS`，因此 v0.4.1 及更早版本可以直接一键更新 |
 | 管理端口 | 默认监听从 `:8787` 改为 `127.0.0.1:8787`，compose 端口映射也改为 `127.0.0.1:8787:8787`；远程访问请显式传 `-addr :8787` 并改回端口映射，或加 VPN / 带认证的反向代理 |
-| Docker 项目 | compose 项目名取自目录名，`pgdata` 具名卷按项目名隔离；**请沿用原目录升级**，把仓库 clone/改名到新目录会得到一个新的空数据库卷 |
+| Docker 项目 | compose 项目名取自目录名，`pgdata` 具名卷按项目名隔离；**请沿用原目录升级**，把仓库 clone/改名到新目录会得到一个新的空数据库卷——启动时会检测并提示（见下节） |
 
 #### v0.4.1 → v0.4.2 实测记录
 
@@ -218,6 +218,48 @@ ARTEX_REDTEAM_TARGETS=linux/amd64,windows/amd64 ./build.sh --release
 一键更新实测（与页面按钮走同一套 `/api/update/*`）：v0.4.1 检查更新能识别 v0.4.2 并选中旧名兼容包 → 下载 → `SHA256SUMS` 校验 → `-h` 冒烟 → 暂存 → 退出换装 → 由 `start.sh` 拉起 0.4.2；上一版本保留为 `artex.old`，回滚可用。把 Release 的 `SHA256SUMS` 临时改成不匹配后，更新被拒绝、暂存件被丢弃、继续运行 0.4.1。更新会重启进程，正在执行的任务会被中断（重启后任务条目从数据库恢复，但不会续跑中断中的那一步）。
 
 > **数据库不回退**：回滚只把二进制换回上一版本（`artex.old`），**不会**回退数据库结构，也**不会**把 `data-redteam/` 改回 `data/`。实测从 0.4.2 回滚到 0.4.1 后，0.4.1 仍能正常读取升级后的库（任务条目还在），但它会重新创建并使用 `data/`，迁移后的旧数据继续留在 `data-redteam/`（两个目录并存）。这是单向迁移，升级前请备份数据目录与数据库。
+
+> **结论：v0.4.1 用户能不能安全升级？**
+>
+> **能，前提是按本节检查单做。** 依据是实测而非推断：数据目录迁移、旧环境变量（`ARTEX_PG_DSN`）、v0.4.1 签发的旧 token/cookie、新旧二进制名、Release 双包（新名 + 旧名兼容包）五条路径都已在 v0.4.1 darwin/arm64 发布包上走通；页面一键更新 v0.4.1 → v0.4.2 也实测通过（`SHA256SUMS` 校验、`-h` 冒烟、换装、回滚；故意把 `SHA256SUMS` 改成不匹配时更新被拒绝且不留下暂存件）。
+>
+> **升级前**：备份 `data-redteam/`（v0.4.1 为 `data/`）与 PostgreSQL 数据库；Docker 用户确认当前目录名/compose 项目名仍是原部署用的那个，若换了目录，按下一节的提示接回旧卷。
+> **升级后**：浏览器需要重新登录一次（服务端接受旧 token，但前端本地存储键已更名）。
+> **回滚**：只把二进制换回上一版本，**数据库结构不回退**；回滚后旧版本会重新创建并使用 `data/`，与已迁移的 `data-redteam/` **并存**（数据目录迁移是单向的）。
+> **已知风险**：Docker 用「新目录 + 新项目名」启动会得到新的空 `pgdata` 卷和空库——启动期卷检测会给出警告与接回命令，但**不会自动迁移数据**；本地二进制部署没有 Docker 卷检测。
+
+#### Docker 换目录后连到空库（启动期检测）
+
+compose 项目名取自目录名，`pgdata` 卷按项目名隔离。把仓库 clone/改名到新目录再 `docker compose up`，会得到**新的空卷 + 空数据库**，旧卷还在机器上但没人指向它，看起来像数据丢了。这件事写进文档也基本没人会读，所以启动时直接检测并在启动日志 / 页面上提示。
+
+- **检测方式**：`docker compose up` 会同时起一个一次性的 `volume-check` 容器（复用同一镜像的 `-volume-check` 模式）。它**只读**挂载 `docker.sock` 和 `./data`，只调用 Docker API 的 `GET /volumes`、`GET /containers/json`，找出其它 compose 项目名下的 `pgdata` 卷（以及旧容器记录过的 `./data` 宿主机路径），把提示写进 `./data/.compose-volume-warning.json` 后退出。主容器不挂 docker.sock。
+- **只在空库时提示**：主程序读到提示后，仅当本库尚未初始化（`auth.password_hash` 为空）时打印警告，并把提示挂到「系统配置 → 版本与更新」卡片（`boot_notice`）；已有数据的部署不会被打扰。
+- **不自动迁移**：只给命令，不动数据、不碰 schema。
+- **检测失败不阻塞**：socket 不可用、非 compose、权限不足、提示文件缺失都只降级为日志；本地二进制运行完全不触发。
+
+实测日志（旧目录 `old/` 有数据，换到 `new/` 启动）：
+
+```text
+[volume] ⚠ 检测到其它 compose 项目的数据卷，而本次连接的数据库是新建的空库
+[volume]   当前项目：new
+[volume]   旧数据仍在：项目 old（卷 old_pgdata），数据目录 /private/tmp/voltest/old/data
+[volume]   如果这是换目录/改名后的升级，旧数据没有被删除，只是没接上。任选其一接回：
+[volume]     COMPOSE_PROJECT_NAME=old docker compose up -d   # 沿用旧项目名（会复用旧 pgdata 卷）
+[volume]     cp -a /private/tmp/voltest/old/data/. ./data/ && COMPOSE_PROJECT_NAME=old docker compose up -d
+[volume]   另外：旧目录下的 data/（traffic 索引、jwt.key 等）不会自动迁移，接回前请手工拷贝到当前目录。
+[volume]   本程序不会自动跨卷迁移数据；接回前建议先备份旧卷/旧目录。
+```
+
+接回旧数据（把 `<old>` / `<old-dir>` 换成日志里的实际值）：
+
+```bash
+# 方案一：沿用旧 compose 项目名，复用旧 pgdata 卷（数据库接回）
+COMPOSE_PROJECT_NAME=<old> docker compose up -d
+# 方案二：同时把旧目录的 ./data（traffic 索引、jwt.key）拷到当前目录
+cp -a <old-dir>/data/. ./data/ && COMPOSE_PROJECT_NAME=<old> docker compose up -d
+```
+
+**已知限制**：旧容器已被 `docker compose down` 删除时，只能从卷标签知道旧项目名/卷名，拿不到旧目录路径（日志会提示手工拷贝旧目录 `data/`）；机器上无关的 compose 项目若也恰好有 `pgdata` 卷且本库尚未初始化，会一并出现在提示里——按日志里的名字确认后再执行命令。
 
 ### 方式一：页面一键更新（推荐）
 

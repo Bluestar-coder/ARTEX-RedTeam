@@ -14,6 +14,12 @@
 - **登录用户名改为 `ARTEX-RedTeam`**（旧的 `ARTEX` 仍接受），登录 cookie 改为 `artex_redteam_token`；升级后需重新登录一次。
 - `start.sh` / `start.bat` 优先启动 `artex-redteam`，缺失时回退 `artex`，老部署换装后无需改名即可继续运行。
 
+### 运维
+
+#### 新增
+
+- **Docker 换目录后连到空库的启动期检测**：compose 项目名取自目录名，换目录/改名后 `pgdata` 具名卷会按新项目名新建一个空卷，旧数据仍在机器上却没人指向它。`docker compose up` 现在会同时跑一个一次性的 `volume-check` 容器（复用同一镜像、只读挂载 docker.sock 与 `./data`），发现其它 compose 项目的 `pgdata` 卷/旧 `./data` 目录时写入提示；主程序仅在**数据库尚未初始化**时于启动日志和「系统配置 → 版本与更新」卡片给出警告与接回命令（`COMPOSE_PROJECT_NAME=<旧项目名> docker compose up -d`）。只检测不迁移，检测失败不影响启动；本地二进制部署不触发。
+
 ### norma
 
 #### 修复

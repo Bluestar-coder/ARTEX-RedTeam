@@ -45,6 +45,10 @@ type Server struct {
 
 	skillDir string // root directory for skill subdirectories
 	jwtKey   []byte // HS256 signing key loaded from / generated into dataDir/jwt.key
+	// volWarn is the one-shot "you may be on a fresh empty DB after switching
+	// compose directories" warning computed at startup. It is surfaced through
+	// the update card's boot notice; empty means nothing to report.
+	volWarn string
 
 	// authPVMu guards the cached password version (pv) that every JWT is bound
 	// to; cachePasswordVersion refreshes it on init / password change.
@@ -267,6 +271,7 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 	go s.reconcileConcurrency()
 	s.startTaskArchiveWorker()
 	s.wireInterceptReviewer() // LLM 兜底审批:未命中拦截规则的命令交给模型判定
+	s.checkComposeVolumeWarning(dataDir)
 	return s
 }
 

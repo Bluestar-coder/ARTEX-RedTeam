@@ -22,6 +22,17 @@ set -u
 
 cd "$(dirname "$0")" || exit 1
 
+# Docker 下先等一次性卷检测（compose 的 volume-check 服务）写入结果，最多 5 秒。
+# 只为让主程序启动日志里带上“换目录后连到新库、旧卷仍在这里”的提醒；等不到也照常启动，
+# 检测绝不阻塞正常启动。本地运行不会设置这个变量。
+if [ "${ARTEX_REDTEAM_VOLUME_CHECK_WAIT:-0}" = "1" ]; then
+	i=0
+	while [ "$i" -lt 25 ] && [ ! -f "./data-redteam/.volume-check.done" ]; do
+		sleep 0.2
+		i=$((i + 1))
+	done
+fi
+
 # 优先新二进制名；老部署升级后二进制仍是 artex，回退兼容。
 BIN=./artex-redteam
 [ -x "$BIN" ] || BIN=./artex

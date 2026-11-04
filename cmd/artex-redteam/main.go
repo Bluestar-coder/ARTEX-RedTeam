@@ -19,6 +19,7 @@ import (
 
 	"github.com/Bluestar-coder/ARTEX-RedTeam/agent"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/config"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/internal/volumecheck"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/selfupdate"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/server"
 )
@@ -57,8 +58,16 @@ func run() int {
 		dataDir = flag.String("data", config.DefaultDataDir(), "data directory for the traffic index, JWT key and workspaces (default: data-redteam/ next to the executable)")
 		proxy   = flag.String("proxy", "127.0.0.1:8788", "traffic recording proxy address (empty to disable)")
 		proxyGW = flag.String("proxy-pool-gateway", "127.0.0.1:8789", "proxy-pool forwarding gateway address (empty to disable 入口C)")
+		// 一次性卷检测模式：由 compose 的 volume-check 容器调用，只读 docker.sock
+		// 检测“换目录后连到新空库、旧 pgdata 卷还在”的陷阱，把提示写进数据目录后
+		// 退出。正常启动不会走到这里。
+		volumeCheck = flag.Bool("volume-check", false, "internal: detect compose volume migration hints and exit")
 	)
 	flag.Parse()
+
+	if *volumeCheck {
+		return volumecheck.RunSidecar(*dataDir)
+	}
 
 	// 默认只监听回环：管理面等价于 root（能配 MCP、能造 bash 工具），不该
 	// 在没设防火墙的机器上默认暴露。确需对外时显式传 -addr :8787。

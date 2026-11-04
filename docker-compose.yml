@@ -34,6 +34,9 @@ services:
       ARTEX_REDTEAM_LLM_MODEL: ${ARTEX_REDTEAM_LLM_MODEL:-${ARTEX_LLM_MODEL:-}}
       ARTEX_REDTEAM_LLM_BASE_URL: ${ARTEX_REDTEAM_LLM_BASE_URL:-${ARTEX_LLM_BASE_URL:-}}
       ARTEX_REDTEAM_LLM_PROXY: ${ARTEX_REDTEAM_LLM_PROXY:-${ARTEX_LLM_PROXY:-}}
+      # 让 start.sh 先等一下一次性卷检测（最多 5 秒），只为把“换目录后连到新空库”
+      # 的提醒放进启动日志；等不到也照常启动。
+      ARTEX_REDTEAM_VOLUME_CHECK_WAIT: "1"
     ports:
       # 管理口默认只绑宿主机回环：容器内 -addr :8787 是通往前端的必要条件，
       # 但对外暴露与否由这里决定。需要远程访问请改成 "8787:8787"，并确保前面
@@ -51,6 +54,24 @@ services:
       # 改 skill 无需重建镜像，容器读的就是宿主机这份。
       - ./skills:/app/skills
     restart: unless-stopped
+
+  # 一次性卷检测（详见 README「Docker 换目录后连到空库」）。
+  #
+  # compose 项目名取自目录名，换目录/改名后 `pgdata` 具名卷会按新项目名新建一个空卷，
+  # 旧卷还在机器上但没人指向它。这个短命容器**只读**挂载 docker.sock，列出其它 compose
+  # 项目的 `pgdata` 卷和容器标签，把“旧数据仍在 X”的提示写进共享的 ./data 目录后退出。
+  # 主程序读到提示、且自己的数据库尚未初始化时，在启动日志和系统页给出警告与接回命令。
+  #
+  # 检测失败（无 socket、非 compose 环境、权限不足）只会让主程序少一条提示，不会阻塞启动；
+  # 这里刻意不用 depends_on 硬依赖，主程序通过 start.sh 的短超时等待结果。
+  volume-check:
+    image: ${ARTEX_REDTEAM_IMAGE:-${ARTEX_IMAGE:-bluestarcoder/artex-redteam:${ARTEX_REDTEAM_TAG:-${ARTEX_TAG:-latest}}}}
+    entrypoint: ["/app/artex-redteam"]
+    command: ["-volume-check"]
+    restart: "no"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./data:/app/data-redteam
 
 volumes:
   pgdata:
