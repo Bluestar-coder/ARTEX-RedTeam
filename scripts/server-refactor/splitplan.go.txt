@@ -1,0 +1,244 @@
+// splitplan emits the metadata needed to split server.go route registrations and
+// handler methods into domain files. It does not modify anything.
+//
+// Usage: go run splitplan.go <repo-root> > /tmp/plan.json
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/printer"
+	"go/token"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strings"
+)
+
+type registration struct {
+	File      string `json:"file"`
+	StartLine int    `json:"start_line"` // registration statement start
+	EndLine   int    `json:"end_line"`
+	LeadStart int    `json:"lead_start"` // contiguous // comment lines above (0 = none)
+	Pattern   string `json:"pattern"`
+	Handler   string `json:"handler"`
+	Domain    string `json:"domain"`
+	Method    string `json:"method"` // direct handler method name ("" = closure/variable)
+}
+
+type methodMove struct {
+	File      string `json:"file"`
+	Name      string `json:"name"`
+	StartLine int    `json:"start_line"`
+	EndLine   int    `json:"end_line"`
+	Domain    string `json:"domain"`
+}
+
+type funcMove struct {
+	File      string `json:"file"`
+	Name      string `json:"name"`
+	StartLine int    `json:"start_line"`
+	EndLine   int    `json:"end_line"`
+	Domain    string `json:"domain"`
+}
+
+type plan struct {
+	Registrations []registration `json:"registrations"`
+	Methods       []methodMove    `json:"methods"`
+	Funcs         []funcMove      `json:"funcs"`
+	Domains       []string        `json:"domains"`
+}
+
+var methodRe = regexp.MustCompile(`s\.([A-Za-z_][A-Za-z0-9_]*)`)
+
+func domainFor(pattern string) string {
+	p := pattern
+	if i := strings.IndexByte(p, ' '); i >= 0 {
+		p = p[i+1:]
+	}
+	seg := func(pre string) bool { return strings.HasPrefix(p, pre) }
+	switch {
+	case seg("/api/auth/"):
+		return "auth"
+	case seg("/api/health"), seg("/api/stats"), seg("/api/logs"), seg("/api/update/"),
+		seg("/api/settings"), seg("/api/notify"), seg("/api/gc"), seg("/api/audit"),
+		seg("/api/tokens"), seg("/api/commands"), seg("/api/selfupdate"):
+		return "system"
+	case seg("/api/tasks"), seg("/api/task-"), seg("/api/active"), seg("/api/exploration"),
+		seg("/api/workspace"), seg("/api/task-categories"):
+		return "tasks"
+	case seg("/api/conversations"), seg("/api/side-questions"), seg("/api/chat"):
+		return "side"
+	case seg("/api/assets"), seg("/api/companies"), seg("/api/asset-"), seg("/api/visibility"):
+		return "assets"
+	case seg("/api/exploration/findings"), seg("/api/findings"), seg("/api/finding-"), seg("/api/triggers"):
+		return "findings"
+	case seg("/api/traffic"):
+		return "traffic"
+	case seg("/api/llm"), seg("/api/tools"), seg("/api/mcp"), seg("/api/skills"),
+		seg("/api/agents"), seg("/api/proxies"), seg("/api/proxy-sources"),
+		seg("/api/intercept"), seg("/api/sync"):
+		return "platform"
+	case seg("/api/report"), seg("/api/export"):
+		return "report"
+	}
+	return "system"
+}
+
+func main() {
+	root := os.Args[1]
+	dir := filepath.Join(root, "server")
+	fset := token.NewFileSet()
+
+	var pl plan
+	handlerMethods := map[string]string{} // method name -> domain (first route)
+
+	// --- registrations inside (*Server).Handler ---
+	src, err := os.ReadFile(filepath.Join(dir, "server.go"))
+	if err != nil {
+		panic(err)
+	}
+	srcLines := strings.Split(string(src), "\n")
+	sf, err := parser.ParseFile(fset, filepath.Join(dir, "server.go"), src, 0)
+	if err != nil {
+		panic(err)
+	}
+	var handlerDecl *ast.FuncDecl
+	for _, d := range sf.Decls {
+		if fd, ok := d.(*ast.FuncDecl); ok && fd.Name.Name == "Handler" {
+			handlerDecl = fd
+			break
+		}
+	}
+	if handlerDecl == nil {
+		panic("Handler not found")
+	}
+	ast.Inspect(handlerDecl.Body, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok || sel.Sel.Name != "HandleFunc" || len(call.Args) < 2 {
+			return true
+		}
+		pat, ok := call.Args[0].(*ast.BasicLit)
+		if !ok || pat.Kind != token.STRING {
+			return true
+		}
+		pattern := strings.Trim(pat.Value, `"`)
+		start := fset.Position(call.Pos()).Line
+		end := fset.Position(call.End()).Line
+		var b strings.Builder
+		_ = printer.Fprint(&b, fset, call.Args[1])
+		handler := b.String()
+		lead := 0
+		for i := start - 2; i >= 0; i-- {
+			t := strings.TrimSpace(srcLines[i])
+			if strings.HasPrefix(t, "//") {
+				lead = i + 1
+				continue
+			}
+			break
+		}
+		domain := domainFor(pattern)
+		m := ""
+		if ms := methodRe.FindAllStringSubmatch(handler, -1); len(ms) > 0 {
+			m = ms[len(ms)-1][1] // innermost/direct handler (wrapper args come last)
+			if _, ok := handlerMethods[m]; !ok {
+				handlerMethods[m] = domain
+			}
+		}
+		pl.Registrations = append(pl.Registrations, registration{
+			File: "server.go", StartLine: start, EndLine: end, LeadStart: lead,
+			Pattern: pattern, Handler: handler, Domain: domain, Method: m,
+		})
+		return true
+	})
+
+	// --- handler methods in server.go / server_mgmt.go ---
+	direct := methodRe.FindAllString("", -1)
+	_ = direct
+	wanted := map[string]bool{}
+	for _, r := range pl.Registrations {
+		if r.Method != "" {
+			wanted[r.Method] = true
+		}
+	}
+	for _, name := range []string{"server.go", "server_mgmt.go"} {
+		fp := filepath.Join(dir, name)
+		f, err := parser.ParseFile(fset, fp, nil, parser.ParseComments)
+		if err != nil {
+			panic(err)
+		}
+		data, _ := os.ReadFile(fp)
+		lines := strings.Split(string(data), "\n")
+		for _, d := range f.Decls {
+			fd, ok := d.(*ast.FuncDecl)
+			if !ok || fd.Recv == nil || !wanted[fd.Name.Name] {
+				continue
+			}
+			start := fset.Position(fd.Pos()).Line
+			if fd.Doc != nil {
+				if l := fset.Position(fd.Doc.Pos()).Line; l < start {
+					start = l
+				}
+			}
+			end := fset.Position(fd.End()).Line
+			_ = lines
+			pl.Methods = append(pl.Methods, methodMove{
+				File: name, Name: fd.Name.Name, StartLine: start, EndLine: end,
+				Domain: handlerMethods[fd.Name.Name],
+			})
+		}
+	}
+	// Whole registration functions that move to their domain file verbatim.
+	moveFuncs := map[string]string{"registerSideRoutes": "side", "registerFindingTraffic": "findings"}
+	for _, name := range []string{"side_questions.go", "finding_traffic.go"} {
+		fp := filepath.Join(dir, name)
+		f, err := parser.ParseFile(fset, fp, nil, 0)
+		if err != nil {
+			panic(err)
+		}
+		for _, d := range f.Decls {
+			fd, ok := d.(*ast.FuncDecl)
+			if !ok || fd.Recv == nil || fd.Body == nil {
+				continue
+			}
+			dom, ok := moveFuncs[fd.Name.Name]
+			if !ok {
+				continue
+			}
+			start := fset.Position(fd.Pos()).Line
+			if fd.Doc != nil {
+				if l := fset.Position(fd.Doc.Pos()).Line; l < start {
+					start = l
+				}
+			}
+			pl.Funcs = append(pl.Funcs, funcMove{File: name, Name: fd.Name.Name, StartLine: start,
+				EndLine: fset.Position(fd.End()).Line, Domain: dom})
+		}
+	}
+
+	sort.Slice(pl.Registrations, func(i, j int) bool { return pl.Registrations[i].StartLine < pl.Registrations[j].StartLine })
+	sort.Slice(pl.Methods, func(i, j int) bool {
+		if pl.Methods[i].File != pl.Methods[j].File {
+			return pl.Methods[i].File < pl.Methods[j].File
+		}
+		return pl.Methods[i].StartLine < pl.Methods[j].StartLine
+	})
+	seen := map[string]bool{}
+	for _, r := range pl.Registrations {
+		if !seen[r.Domain] {
+			seen[r.Domain] = true
+			pl.Domains = append(pl.Domains, r.Domain)
+		}
+	}
+	sort.Strings(pl.Domains)
+	b, _ := json.MarshalIndent(pl, "", "  ")
+	fmt.Println(string(b))
+	fmt.Fprintf(os.Stderr, "registrations=%d methods=%d domains=%v\n", len(pl.Registrations), len(pl.Methods), pl.Domains)
+}
