@@ -74,7 +74,7 @@ func (s *Server) searchChatMentions(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, page)
+	writeOK(w, page)
 }
 
 // prepareChatMentionMessage fails before accepting/persisting a turn when a

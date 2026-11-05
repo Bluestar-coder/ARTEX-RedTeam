@@ -119,5 +119,5 @@ func (s *Server) taskLLMResolutionHandler(w http.ResponseWriter, r *http.Request
 		}
 		roles[responseKey] = resolved
 	}
-	writeJSON(w, http.StatusOK, roles)
+	writeOK(w, roles)
 }

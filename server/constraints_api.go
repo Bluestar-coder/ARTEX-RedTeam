@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -42,7 +41,7 @@ func (s *Server) listConstraints(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"constraints": constraintDTOs(rows)})
+	writeOK(w, map[string]any{"constraints": constraintDTOs(rows)})
 }
 
 // addConstraint 人工新增一条操作约束(kind=allow|deny)。不通知 planner。
@@ -62,8 +61,7 @@ func (s *Server) addConstraint(w http.ResponseWriter, r *http.Request) {
 		Text string `json:"text"`
 		Kind string `json:"kind"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeErr(w, 400, "invalid JSON")
+	if !decodeBodyMsg(w, r, &body, 400, "invalid JSON") {
 		return
 	}
 	text := strings.TrimSpace(body.Text)
@@ -81,7 +79,7 @@ func (s *Server) addConstraint(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, ConstraintDTO{ID: strconv.FormatInt(id, 10), Kind: kind, Text: text, Origin: "human"})
+	writeOK(w, ConstraintDTO{ID: strconv.FormatInt(id, 10), Kind: kind, Text: text, Origin: "human"})
 }
 
 // editConstraint 人工修改一条约束(kind + text)。不通知 planner。
@@ -106,8 +104,7 @@ func (s *Server) editConstraint(w http.ResponseWriter, r *http.Request) {
 		Text string `json:"text"`
 		Kind string `json:"kind"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeErr(w, 400, "invalid JSON")
+	if !decodeBodyMsg(w, r, &body, 400, "invalid JSON") {
 		return
 	}
 	text := strings.TrimSpace(body.Text)
@@ -124,7 +121,7 @@ func (s *Server) editConstraint(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, ConstraintDTO{ID: strconv.FormatInt(cid, 10), Kind: kind, Text: text})
+	writeOK(w, ConstraintDTO{ID: strconv.FormatInt(cid, 10), Kind: kind, Text: text})
 }
 
 // deleteConstraint 人工删除一条约束。不通知 planner。
@@ -149,7 +146,7 @@ func (s *Server) deleteConstraint(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]bool{"ok": true})
+	writeOK(w, map[string]bool{"ok": true})
 }
 
 // normalizeConstraintKind lowercases + validates the kind; "" on invalid.

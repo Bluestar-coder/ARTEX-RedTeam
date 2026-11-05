@@ -249,8 +249,7 @@ func (s *Server) controlTasksBatch(w http.ResponseWriter, r *http.Request) {
 		TaskIDs []string `json:"task_ids"`
 		Action  string   `json:"action"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, 400, "bad json: "+err.Error())
+	if !decodeBodyBadJSON(w, r, &req, 400) {
 		return
 	}
 	if req.Action != "pause" && req.Action != "resume" {
@@ -284,5 +283,5 @@ func (s *Server) controlTasksBatch(w http.ResponseWriter, r *http.Request) {
 		}
 		items = append(items, item)
 	}
-	writeJSON(w, 200, map[string]any{"items": items})
+	writeOK(w, map[string]any{"items": items})
 }

@@ -88,7 +88,7 @@ func (s *Server) syncSSStatus(w http.ResponseWriter, r *http.Request) {
 		"tools":      []string{},
 	}
 	if m == nil {
-		writeJSON(w, 200, resp)
+		writeOK(w, resp)
 		return
 	}
 	configured := m.URL != "" && envHasValue(m.Env)
@@ -109,7 +109,7 @@ func (s *Server) syncSSStatus(w http.ResponseWriter, r *http.Request) {
 			_ = cl.Close()
 		}
 	}
-	writeJSON(w, 200, resp)
+	writeOK(w, resp)
 }
 
 // ---------- POST /api/sync/scopesentry/datasource ----------
@@ -158,7 +158,7 @@ func (s *Server) syncSSDatasource(w http.ResponseWriter, r *http.Request) {
 		_ = s.discoverAndCacheMCP(ctx, m)
 		cancel()
 	}
-	writeJSON(w, 200, map[string]any{"id": id, "enabled": m.Enabled})
+	writeOK(w, map[string]any{"id": id, "enabled": m.Enabled})
 }
 
 // ---------- GET /api/sync/scopesentry/projects ----------
@@ -201,7 +201,7 @@ func (s *Server) syncSSProjects(w http.ResponseWriter, r *http.Request) {
 	if raw, ok := env.Result["All"]; ok && len(raw) > 0 {
 		projects = raw
 	}
-	writeJSON(w, 200, map[string]any{"projects": projects, "tag": env.Tag})
+	writeOK(w, map[string]any{"projects": projects, "tag": env.Tag})
 }
 
 // ---------- GET /api/sync/scopesentry/tasks ----------
@@ -242,7 +242,7 @@ func (s *Server) syncSSTasks(w http.ResponseWriter, r *http.Request) {
 	if len(tasks) == 0 {
 		tasks = json.RawMessage("[]")
 	}
-	writeJSON(w, 200, map[string]any{"tasks": tasks})
+	writeOK(w, map[string]any{"tasks": tasks})
 }
 
 // ---------- POST /api/sync/scopesentry/sync ----------
@@ -354,7 +354,7 @@ func (s *Server) syncSSRun(w http.ResponseWriter, r *http.Request) {
 		_ = cs.RecomputeAttribution()
 	}
 
-	writeJSON(w, 200, map[string]any{
+	writeOK(w, map[string]any{
 		"synced":    synced,
 		"companies": companies,
 		"warnings":  warnings,

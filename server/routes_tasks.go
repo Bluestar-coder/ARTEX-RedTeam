@@ -233,15 +233,14 @@ func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
 		}
 		dtos = append(dtos, dto)
 	}
-	writeJSON(w, 200, map[string]any{"tasks": dtos, "active": active})
+	writeOK(w, map[string]any{"tasks": dtos, "active": active})
 }
 
 func (s *Server) setActive(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ID string `json:"id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, 400, err.Error())
+	if !decodeBodyErr(w, r, &req, 400) {
 		return
 	}
 	if !s.m.SetActive(req.ID) {
@@ -253,7 +252,7 @@ func (s *Server) setActive(w http.ResponseWriter, r *http.Request) {
 	if t, ok := s.m.Task(req.ID); ok && !t.lifecycleSnapshot().Queued {
 		s.engine.Run(s.ctx, t)
 	}
-	writeJSON(w, 200, map[string]any{"active": req.ID})
+	writeOK(w, map[string]any{"active": req.ID})
 }
 
 // control pauses/resumes a task's autonomous execution (planner + workers).
@@ -266,8 +265,7 @@ func (s *Server) control(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Action string `json:"action"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, 400, err.Error())
+	if !decodeBodyErr(w, r, &req, 400) {
 		return
 	}
 	if req.Action != "pause" && req.Action != "resume" {
@@ -279,7 +277,7 @@ func (s *Server) control(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 409, err.Error())
 		return
 	}
-	writeJSON(w, 200, result)
+	writeOK(w, result)
 }
 
 // controlIntent pauses, resumes, or cancels one local worker intent. A running
@@ -307,8 +305,7 @@ func (s *Server) controlIntent(w http.ResponseWriter, r *http.Request) {
 		Reason string `json:"reason"` // cancel(删除)时必填:删除原因
 		Mode   string `json:"mode"`   // cancel 专用:soft(默认,假删除)| hard(真删除,级联移除独占子孙)
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, 400, "bad json: "+err.Error())
+	if !decodeBodyBadJSON(w, r, &req, 400) {
 		return
 	}
 	if req.Action != "pause" && req.Action != "resume" && req.Action != "cancel" {
@@ -321,7 +318,7 @@ func (s *Server) controlIntent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 409, err.Error())
 		return
 	}
-	writeJSON(w, 200, result)
+	writeOK(w, result)
 }
 
 func (s *Server) rerunIntent(w http.ResponseWriter, r *http.Request) {
@@ -363,7 +360,7 @@ func (s *Server) rerunIntent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("[task] #%s 意图 #%d 已重开(重跑)", t.ID, iid)
-	writeJSON(w, 200, map[string]any{"id": t.ID, "reopened": iid, "queued": queued})
+	writeOK(w, map[string]any{"id": t.ID, "reopened": iid, "queued": queued})
 }
 
 // rerunBlocked 批量重跑本任务全部 blocked 意图(适合一次网络/LLM 断连导致多条 blocked 后
@@ -414,13 +411,12 @@ func (s *Server) rerunBlocked(w http.ResponseWriter, r *http.Request) {
 		}
 		log.Printf("[task] #%s 批量重开 %d 条 blocked 意图", t.ID, n)
 	}
-	writeJSON(w, 200, map[string]any{"id": t.ID, "reopened": n, "queued": queued})
+	writeOK(w, map[string]any{"id": t.ID, "reopened": n, "queued": queued})
 }
 
 func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 	var req createTaskReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, 400, "bad json: "+err.Error())
+	if !decodeBodyBadJSON(w, r, &req, 400) {
 		return
 	}
 	if strings.TrimSpace(req.Description) == "" {
@@ -505,8 +501,7 @@ func (s *Server) updateTaskLLMProfiles(w http.ResponseWriter, r *http.Request) {
 		LLMProfileIDs      []int64 `json:"llm_profile_ids"`
 		ActiveLLMProfileID *int64  `json:"active_llm_profile_id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, 400, "bad json: "+err.Error())
+	if !decodeBodyBadJSON(w, r, &req, 400) {
 		return
 	}
 	if err := s.validateTaskProfileIDs(req.LLMProfileIDs); err != nil {
@@ -538,7 +533,7 @@ func (s *Server) updateTaskLLMProfiles(w http.ResponseWriter, r *http.Request) {
 		event := s.emitManualTaskLLMSwitch(t, before.ActiveID, llmState.ActiveID)
 		result["switch_event"] = activityDTO(event)
 	}
-	writeJSON(w, 200, result)
+	writeOK(w, result)
 }
 
 func (s *Server) getTask(w http.ResponseWriter, r *http.Request) {
@@ -550,7 +545,7 @@ func (s *Server) getTask(w http.ResponseWriter, r *http.Request) {
 	dto := taskDTO(t, s.resolvedTaskStatus(t))
 	archiveBlockers, _ := s.m.PG().TaskArchiveBlockers()
 	applyTaskArchiveBlocker(&dto, archiveBlockers)
-	writeJSON(w, 200, dto)
+	writeOK(w, dto)
 }
 
 // taskCoverage returns a task's rough asset test coverage (denominator/tested/backlog).
@@ -567,7 +562,7 @@ func (s *Server) taskCoverage(w http.ResponseWriter, r *http.Request) {
 	}
 	// 资产覆盖度功能关闭 → 短路返回 {enabled:false}，前端据此隐藏覆盖度卡片/进度。
 	if !t.CoverageEnabled {
-		writeJSON(w, 200, &db.Coverage{Enabled: false, ByType: []db.CoverageByType{}})
+		writeOK(w, &db.Coverage{Enabled: false, ByType: []db.CoverageByType{}})
 		return
 	}
 	taskID, _ := strconv.ParseInt(t.ID, 10, 64)
@@ -577,7 +572,7 @@ func (s *Server) taskCoverage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cov.Enabled = true
-	writeJSON(w, 200, cov)
+	writeOK(w, cov)
 }
 
 // taskCoverageGraph returns the force-directed asset coverage graph for a task:
@@ -599,7 +594,7 @@ func (s *Server) taskCoverageGraph(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, g)
+	writeOK(w, g)
 }
 
 // taskAssetRefs returns the intents / facts / findings in this task anchored to a
@@ -634,7 +629,7 @@ func (s *Server) taskAssetRefs(w http.ResponseWriter, r *http.Request) {
 			findings = append(findings, dto)
 		}
 	}
-	writeJSON(w, 200, map[string]any{"intents": intents, "facts": facts, "findings": findings})
+	writeOK(w, map[string]any{"intents": intents, "facts": facts, "findings": findings})
 }
 
 // taskScopeList returns a task's scope rows (coverage denominator sources).
@@ -655,7 +650,7 @@ func (s *Server) taskScopeList(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"scope": rows})
+	writeOK(w, map[string]any{"scope": rows})
 }
 
 func (s *Server) taskScopeAdd(w http.ResponseWriter, r *http.Request) {
@@ -674,8 +669,7 @@ func (s *Server) taskScopeAdd(w http.ResponseWriter, r *http.Request) {
 		Value  string `json:"value"`
 		Reason string `json:"reason"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeErr(w, 400, "invalid JSON")
+	if !decodeBodyMsg(w, r, &body, 400, "invalid JSON") {
 		return
 	}
 	taskID, _ := strconv.ParseInt(t.ID, 10, 64)
@@ -684,7 +678,7 @@ func (s *Server) taskScopeAdd(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
-	writeJSON(w, 200, ts)
+	writeOK(w, ts)
 }
 
 func (s *Server) taskScopeDelete(w http.ResponseWriter, r *http.Request) {
@@ -713,17 +707,17 @@ func (s *Server) taskScopeDelete(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "scope row not found")
 		return
 	}
-	writeJSON(w, 200, map[string]bool{"ok": true})
+	writeOK(w, map[string]bool{"ok": true})
 }
 
 func (s *Server) frontier(w http.ResponseWriter, r *http.Request) {
 	t := s.m.ResolveTask(r.URL.Query().Get("task"))
 	if t == nil {
-		writeJSON(w, 200, []any{})
+		writeOK(w, []any{})
 		return
 	}
 	fr, _ := t.Store.Frontier(atoiDefault(r.URL.Query().Get("limit"), 100))
-	writeJSON(w, 200, taskNodeDTOs(fr))
+	writeOK(w, taskNodeDTOs(fr))
 }
 
 func (s *Server) findings(w http.ResponseWriter, r *http.Request) {
@@ -741,7 +735,7 @@ func (s *Server) findings(w http.ResponseWriter, r *http.Request) {
 			for _, f := range fs {
 				out = append(out, findingFromDB(f, assets))
 			}
-			writeJSON(w, 200, out)
+			writeOK(w, out)
 			return
 		}
 		page := findingPaginationParam(q.Get("page"), 1, 0)
@@ -756,12 +750,12 @@ func (s *Server) findings(w http.ResponseWriter, r *http.Request) {
 		for _, f := range fs {
 			out = append(out, findingFromDB(f, assets))
 		}
-		writeJSON(w, 200, map[string]any{"items": out, "total": total, "page": page, "page_size": limit})
+		writeOK(w, map[string]any{"items": out, "total": total, "page": page, "page_size": limit})
 		return
 	}
 	t := s.m.ResolveTask(taskParam)
 	if t == nil {
-		writeJSON(w, 200, []any{})
+		writeOK(w, []any{})
 		return
 	}
 	f, err := t.Store.ListByKind(db.KindFinding, 200)
@@ -814,7 +808,7 @@ func (s *Server) findings(w http.ResponseWriter, r *http.Request) {
 			s.resolveAssetIDs(sourceAssetIDs),
 		)...)
 	}
-	writeJSON(w, 200, out)
+	writeOK(w, out)
 }
 
 // findingStats serves the whole-table aggregates (stat cards + vuln-class filter)
@@ -825,7 +819,7 @@ func (s *Server) findingStats(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, st)
+	writeOK(w, st)
 }
 
 // getFinding returns one finding by its standalone-table id (DTO finding_id),
@@ -861,7 +855,7 @@ func (s *Server) getFinding(w http.ResponseWriter, r *http.Request) {
 		dto.SourceTaskID = sourceTaskID
 		dto.Inherited = inherited
 	}
-	writeJSON(w, 200, dto)
+	writeOK(w, dto)
 }
 
 // findingsExport 导出发现页的漏洞。
@@ -989,12 +983,12 @@ func (s *Server) findingLineage(w http.ResponseWriter, r *http.Request) {
 	}
 	empty := map[string]any{"nodes": []any{}, "edges": []any{}}
 	if f.NodeID == nil || f.TaskID == nil {
-		writeJSON(w, 200, empty)
+		writeOK(w, empty)
 		return
 	}
 	t := s.m.ResolveTask(i64s(*f.TaskID))
 	if t == nil {
-		writeJSON(w, 200, empty)
+		writeOK(w, empty)
 		return
 	}
 	nodes, edges, err := t.Store.FindingLineage(*f.NodeID)
@@ -1002,7 +996,7 @@ func (s *Server) findingLineage(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"nodes": taskNodeDTOs(nodes), "edges": edgeDTOs(edges)})
+	writeOK(w, map[string]any{"nodes": taskNodeDTOs(nodes), "edges": edgeDTOs(edges)})
 }
 
 // patchFinding partially updates a finding: any subset of {status, severity}.
@@ -1021,8 +1015,7 @@ func (s *Server) patchFinding(w http.ResponseWriter, r *http.Request) {
 		Name      *string `json:"name"`
 		VulnClass *string `json:"vulnclass"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeErr(w, 400, "bad json: "+err.Error())
+	if !decodeBodyBadJSON(w, r, &body, 400) {
 		return
 	}
 	if body.Status == nil && body.Severity == nil && body.Name == nil && body.VulnClass == nil {
@@ -1096,7 +1089,7 @@ func (s *Server) patchFinding(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "finding not found")
 		return
 	}
-	writeJSON(w, 200, findingFromDB(f, s.resolveAssetIDs(f.AssetIDs)))
+	writeOK(w, findingFromDB(f, s.resolveAssetIDs(f.AssetIDs)))
 }
 
 // deleteFinding removes a finding (findings row + originating exploration node).
@@ -1116,14 +1109,14 @@ func (s *Server) deleteFinding(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "finding not found")
 		return
 	}
-	writeJSON(w, 200, map[string]any{"deleted": true, "id": id})
+	writeOK(w, map[string]any{"deleted": true, "id": id})
 }
 
 func (s *Server) intents(w http.ResponseWriter, r *http.Request) {
 	t := s.m.ResolveTask(r.URL.Query().Get("task"))
 	if t == nil {
 		// Back-compat: bare list shape when the task can't be resolved.
-		writeJSON(w, 200, []any{})
+		writeOK(w, []any{})
 		return
 	}
 	q := r.URL.Query()
@@ -1137,7 +1130,7 @@ func (s *Server) intents(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 500, err.Error())
 			return
 		}
-		writeJSON(w, 200, taskNodeDTOs(in))
+		writeOK(w, taskNodeDTOs(in))
 		return
 	}
 	// Paged form: ?before=<id> (or ?page as a marker) → {items, has_more} so the
@@ -1170,14 +1163,14 @@ func (s *Server) intents(w http.ResponseWriter, r *http.Request) {
 		in = in[:limit]
 		hasMore = true
 	}
-	writeJSON(w, 200, map[string]any{"items": taskNodeDTOs(in), "has_more": hasMore})
+	writeOK(w, map[string]any{"items": taskNodeDTOs(in), "has_more": hasMore})
 }
 
 // explorationGraph returns the whole exploration chain (task graph) as nodes+edges.
 func (s *Server) explorationGraph(w http.ResponseWriter, r *http.Request) {
 	t := s.m.ResolveTask(r.URL.Query().Get("task"))
 	if t == nil {
-		writeJSON(w, 200, map[string]any{"nodes": []any{}, "edges": []any{}})
+		writeOK(w, map[string]any{"nodes": []any{}, "edges": []any{}})
 		return
 	}
 	nodes, err := t.Store.Nodes(2000)
@@ -1210,7 +1203,7 @@ func (s *Server) explorationGraph(w http.ResponseWriter, r *http.Request) {
 		nodes = append(nodes, sourceNodes...)
 		edges = append(edges, sourceEdges...)
 	}
-	writeJSON(w, 200, map[string]any{"nodes": taskNodeDTOs(nodes), "edges": edgeDTOs(edges)})
+	writeOK(w, map[string]any{"nodes": taskNodeDTOs(nodes), "edges": edgeDTOs(edges)})
 }
 
 // explorationNodes serves the 播报板: this task's own exploration nodes as a
@@ -1226,7 +1219,7 @@ func (s *Server) explorationNodes(w http.ResponseWriter, r *http.Request) {
 	size := atoiDefault(q.Get("size"), 20)
 	t := s.m.ResolveTask(q.Get("task"))
 	if t == nil {
-		writeJSON(w, 200, map[string]any{
+		writeOK(w, map[string]any{
 			"items": []any{}, "total": 0, "page": page, "size": size,
 			"edges": []any{}, "refs": map[string]any{},
 		})
@@ -1276,7 +1269,7 @@ func (s *Server) explorationNodes(w http.ResponseWriter, r *http.Request) {
 	for _, n := range neighbours {
 		refs[i64s(n.ID)] = taskNodeDTO(n)
 	}
-	writeJSON(w, 200, map[string]any{
+	writeOK(w, map[string]any{
 		"items":  taskNodeDTOs(nodes),
 		"total":  total,
 		"page":   page,
@@ -1291,7 +1284,7 @@ func (s *Server) explorationNodes(w http.ResponseWriter, r *http.Request) {
 func (s *Server) activity(w http.ResponseWriter, r *http.Request) {
 	t := s.m.ResolveTask(r.URL.Query().Get("task"))
 	if t == nil {
-		writeJSON(w, 200, map[string]any{"items": []any{}, "cursor": 0})
+		writeOK(w, map[string]any{"items": []any{}, "cursor": 0})
 		return
 	}
 	since := int64(atoiDefault(r.URL.Query().Get("since"), 0))
@@ -1317,7 +1310,7 @@ func (s *Server) activity(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"items": activityDTOs(items), "cursor": cursor})
+	writeOK(w, map[string]any{"items": activityDTOs(items), "cursor": cursor})
 }
 
 // activityHistory serves one reverse-paginated page of a session's activity history.
@@ -1389,7 +1382,7 @@ func (s *Server) activityHistory(w http.ResponseWriter, r *http.Request) {
 	if len(items) > 0 {
 		earliest = items[0].ID
 	}
-	writeJSON(w, 200, map[string]any{
+	writeOK(w, map[string]any{
 		"items":           activityDTOs(items),
 		"snapshot_cursor": snapshot,
 		"earliest_cursor": earliest,
@@ -1402,7 +1395,7 @@ func (s *Server) activityHistory(w http.ResponseWriter, r *http.Request) {
 func (s *Server) tokenStats(w http.ResponseWriter, r *http.Request) {
 	t := s.m.ResolveTask(r.URL.Query().Get("task"))
 	if t == nil {
-		writeJSON(w, 200, map[string]any{
+		writeOK(w, map[string]any{
 			"workers":  []db.TokenUsage{},
 			"sessions": []db.SessionTokenUsage{},
 			"total":    tokenTotalDTO(db.TokenUsage{}),
@@ -1424,7 +1417,7 @@ func (s *Server) tokenStats(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"workers": stats, "sessions": sessions, "total": tokenTotalDTO(total)})
+	writeOK(w, map[string]any{"workers": stats, "sessions": sessions, "total": tokenTotalDTO(total)})
 }
 
 func (s *Server) streamActivity(w http.ResponseWriter, r *http.Request) {
@@ -1538,7 +1531,7 @@ func (s *Server) activityDetail(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"detail": d})
+	writeOK(w, map[string]any{"detail": d})
 }
 
 // mainSessions lists the task's main-agent conversation segments (newest-first) and
@@ -1558,7 +1551,7 @@ func (s *Server) mainSessions(w http.ResponseWriter, r *http.Request) {
 	if len(list) > 0 {
 		current = list[0].Seq // newest-first
 	}
-	writeJSON(w, 200, map[string]any{"sessions": list, "current": current})
+	writeOK(w, map[string]any{"sessions": list, "current": current})
 }
 
 // newMainSession starts a fresh main-agent conversation segment. Only the segment
@@ -1579,7 +1572,7 @@ func (s *Server) newMainSession(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"seq": m.Seq, "created_at": rfc3339(m.CreatedAt), "current": m.Seq})
+	writeOK(w, map[string]any{"seq": m.Seq, "created_at": rfc3339(m.CreatedAt), "current": m.Seq})
 }
 
 // taskChatStatus reports the authoritative state of the task's main-agent turn.
@@ -1594,7 +1587,7 @@ func (s *Server) taskChatStatus(w http.ResponseWriter, r *http.Request) {
 	s.chatMu.Lock()
 	running := s.chatBusy[t.ID]
 	s.chatMu.Unlock()
-	writeJSON(w, http.StatusOK, map[string]bool{"running": running})
+	writeOK(w, map[string]bool{"running": running})
 }
 
 // stopChat aborts the in-flight main-agent turn for a task (manual stop button).
@@ -1607,10 +1600,10 @@ func (s *Server) stopChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.cancelTaskChat(t.ID, agent.AbortChatStoppedByUser) {
-		writeJSON(w, 200, map[string]any{"status": "idle"})
+		writeOK(w, map[string]any{"status": "idle"})
 		return
 	}
-	writeJSON(w, 200, map[string]any{"status": "stopping"})
+	writeOK(w, map[string]any{"status": "stopping"})
 }
 
 func (s *Server) pgDeleteTask(w http.ResponseWriter, r *http.Request) {
@@ -1674,5 +1667,5 @@ func (s *Server) pgDeleteTask(w http.ResponseWriter, r *http.Request) {
 	delete(s.taskAgents, id)
 	s.taskAgentMu.Unlock()
 	deleted = true
-	writeJSON(w, 200, result)
+	writeOK(w, result)
 }

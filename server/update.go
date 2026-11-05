@@ -238,7 +238,7 @@ func (s *Server) updateCheck(w http.ResponseWriter, r *http.Request) {
 	rel, err := relCache.get(r.Context(), client, force)
 	if err != nil {
 		out["error"] = err.Error()
-		writeJSON(w, 200, out)
+		writeOK(w, out)
 		return
 	}
 
@@ -267,7 +267,7 @@ func (s *Server) updateCheck(w http.ResponseWriter, r *http.Request) {
 		// 用正式版覆盖掉本地正在调试的二进制，所以直接不给更新。
 		out["reason"] = fmt.Sprintf("当前版本 %q 不是正式发布版本，已禁用一键更新", current)
 	}
-	writeJSON(w, 200, out)
+	writeOK(w, out)
 }
 
 // updateApply 下载并暂存新版本，完成后让进程退出交给守护脚本重启。

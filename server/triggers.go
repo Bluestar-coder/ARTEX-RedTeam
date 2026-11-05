@@ -18,7 +18,7 @@ func (s *Server) pgListTriggers(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"triggers": trs})
+	writeOK(w, map[string]any{"triggers": trs})
 }
 
 type triggerReq struct {
@@ -82,7 +82,7 @@ func (s *Server) pgCreateTrigger(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, tr)
+	writeOK(w, tr)
 }
 
 func (s *Server) pgUpdateTrigger(w http.ResponseWriter, r *http.Request) {
@@ -117,7 +117,7 @@ func (s *Server) pgUpdateTrigger(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"ok": true})
+	writeOK(w, map[string]any{"ok": true})
 }
 
 func (s *Server) pgDeleteTrigger(w http.ResponseWriter, r *http.Request) {
@@ -134,5 +134,5 @@ func (s *Server) pgDeleteTrigger(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"deleted": id})
+	writeOK(w, map[string]any{"deleted": id})
 }

@@ -108,7 +108,7 @@ func (s *Server) interceptListRules(w http.ResponseWriter, r *http.Request) {
 	if rules == nil {
 		rules = []db.InterceptRule{}
 	}
-	writeJSON(w, 200, map[string]any{"rules": rules})
+	writeOK(w, map[string]any{"rules": rules})
 }
 
 func (s *Server) interceptCreateRule(w http.ResponseWriter, r *http.Request) {
@@ -131,7 +131,7 @@ func (s *Server) interceptCreateRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.m.interceptor.Invalidate()
-	writeJSON(w, 200, rule)
+	writeOK(w, rule)
 }
 
 func (s *Server) interceptUpdateRule(w http.ResponseWriter, r *http.Request) {
@@ -159,7 +159,7 @@ func (s *Server) interceptUpdateRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.m.interceptor.Invalidate()
-	writeJSON(w, 200, rule)
+	writeOK(w, rule)
 }
 
 func (s *Server) interceptDeleteRule(w http.ResponseWriter, r *http.Request) {
@@ -177,7 +177,7 @@ func (s *Server) interceptDeleteRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.m.interceptor.Invalidate()
-	writeJSON(w, 200, map[string]any{"deleted": id})
+	writeOK(w, map[string]any{"deleted": id})
 }
 
 func (s *Server) interceptToggleRule(w http.ResponseWriter, r *http.Request) {
@@ -202,7 +202,7 @@ func (s *Server) interceptToggleRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.m.interceptor.Invalidate()
-	writeJSON(w, 200, map[string]any{"ok": true, "enabled": req.Enabled})
+	writeOK(w, map[string]any{"ok": true, "enabled": req.Enabled})
 }
 
 // --- pending (ask) ---
@@ -220,7 +220,7 @@ func (s *Server) interceptListPending(w http.ResponseWriter, r *http.Request) {
 	if pending == nil {
 		pending = []db.InterceptPending{}
 	}
-	writeJSON(w, 200, map[string]any{"pending": pending})
+	writeOK(w, map[string]any{"pending": pending})
 }
 
 func (s *Server) interceptGetOne(w http.ResponseWriter, r *http.Request) {
@@ -242,7 +242,7 @@ func (s *Server) interceptGetOne(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "not found")
 		return
 	}
-	writeJSON(w, 200, p)
+	writeOK(w, p)
 }
 
 func (s *Server) interceptListTaskItems(w http.ResponseWriter, r *http.Request) {
@@ -270,7 +270,7 @@ func (s *Server) interceptListTaskItems(w http.ResponseWriter, r *http.Request) 
 		if items == nil {
 			items = []db.InterceptApprovalRow{}
 		}
-		writeJSON(w, 200, map[string]any{"items": items, "total": len(items)})
+		writeOK(w, map[string]any{"items": items, "total": len(items)})
 		return
 	}
 	page, size := interceptPageParams(q)
@@ -282,7 +282,7 @@ func (s *Server) interceptListTaskItems(w http.ResponseWriter, r *http.Request) 
 	if items == nil {
 		items = []db.InterceptApprovalRow{}
 	}
-	writeJSON(w, 200, map[string]any{"items": items, "total": total, "page": page, "page_size": size})
+	writeOK(w, map[string]any{"items": items, "total": total, "page": page, "page_size": size})
 }
 
 func (s *Server) interceptHistory(w http.ResponseWriter, r *http.Request) {
@@ -305,7 +305,7 @@ func (s *Server) interceptHistory(w http.ResponseWriter, r *http.Request) {
 		if items == nil {
 			items = []db.InterceptApprovalRow{}
 		}
-		writeJSON(w, 200, map[string]any{"items": items, "total": len(items)})
+		writeOK(w, map[string]any{"items": items, "total": len(items)})
 		return
 	}
 	page, size := interceptPageParams(q)
@@ -317,7 +317,7 @@ func (s *Server) interceptHistory(w http.ResponseWriter, r *http.Request) {
 	if items == nil {
 		items = []db.InterceptApprovalRow{}
 	}
-	writeJSON(w, 200, map[string]any{"items": items, "total": total, "page": page, "page_size": size})
+	writeOK(w, map[string]any{"items": items, "total": total, "page": page, "page_size": size})
 }
 
 func interceptFilterParams(q url.Values) (db.InterceptApprovalFilter, error) {
@@ -375,7 +375,7 @@ func (s *Server) interceptDecide(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"ok": true})
+	writeOK(w, map[string]any{"ok": true})
 }
 
 // --- tool-config (全局工具拦截范围) ---
@@ -388,7 +388,7 @@ func (s *Server) interceptGetToolConfig(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"enabled_tools": tools})
+	writeOK(w, map[string]any{"enabled_tools": tools})
 }
 
 // interceptSetToolConfig replaces the list of tool names that should enter
@@ -408,7 +408,7 @@ func (s *Server) interceptSetToolConfig(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"ok": true})
+	writeOK(w, map[string]any{"ok": true})
 }
 
 // --- LLM fallback judge config (全局模型兜底) ---
@@ -416,7 +416,7 @@ func (s *Server) interceptSetToolConfig(w http.ResponseWriter, r *http.Request) 
 // interceptGetJudgeConfig returns the resolved judge configuration. Prompt is the
 // effective prompt (built-in template when unset), so the UI can prefill it.
 func (s *Server) interceptGetJudgeConfig(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, s.m.interceptor.GetJudgeConfig())
+	writeOK(w, s.m.interceptor.GetJudgeConfig())
 }
 
 // interceptSetJudgeConfig persists the judge configuration.
@@ -442,7 +442,7 @@ func (s *Server) interceptSetJudgeConfig(w http.ResponseWriter, r *http.Request)
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"ok": true})
+	writeOK(w, map[string]any{"ok": true})
 }
 
 // interceptJudgeUsage returns the fallback judge's cumulative token spend plus a
@@ -450,7 +450,7 @@ func (s *Server) interceptSetJudgeConfig(w http.ResponseWriter, r *http.Request)
 func (s *Server) interceptJudgeUsage(w http.ResponseWriter, r *http.Request) {
 	pg := s.m.PG()
 	if pg == nil {
-		writeJSON(w, 200, db.JudgeUsage{Daily: []db.JudgeDayUsage{}})
+		writeOK(w, db.JudgeUsage{Daily: []db.JudgeDayUsage{}})
 		return
 	}
 	days := atoiDefault(r.URL.Query().Get("days"), 30)
@@ -459,7 +459,7 @@ func (s *Server) interceptJudgeUsage(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, usage)
+	writeOK(w, usage)
 }
 
 // --- helpers ---
@@ -527,7 +527,7 @@ func (s *Server) interceptDetail(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "not found")
 		return
 	}
-	writeJSON(w, 200, detail)
+	writeOK(w, detail)
 }
 
 // The navigation endpoint returns only the original call and its paired result.
@@ -572,5 +572,5 @@ func (s *Server) interceptExecution(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "审批记录已被删除或不存在")
 		return
 	}
-	writeJSON(w, 200, map[string]any{"conversation_id": target.ConversationID, "task_id": target.TaskID, "session": target.Session, "seq": target.Seq, "items": activityDTOs(target.Items)})
+	writeOK(w, map[string]any{"conversation_id": target.ConversationID, "task_id": target.TaskID, "session": target.Session, "seq": target.Seq, "items": activityDTOs(target.Items)})
 }

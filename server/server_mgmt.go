@@ -137,7 +137,7 @@ func (s *Server) abortTaskDelete(taskID string) {
 
 func writeCommittedTaskDelete(w http.ResponseWriter, result DeleteTaskResult, err error) {
 	result.CleanupWarning = err.Error()
-	writeJSON(w, http.StatusOK, result)
+	writeOK(w, result)
 }
 
 func (s *Server) waitTaskQuiescent(ctx context.Context, taskID string) error {

@@ -55,7 +55,7 @@ func (s *Server) attachTaskAssets(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		task.Notify()
-		writeJSON(w, http.StatusOK, mutation)
+		writeOK(w, mutation)
 		return
 	}
 	mutation, err := s.m.Assets().AttachAssetsToTask(taskID, request.AssetIDs, request.SourceSummary)
@@ -64,7 +64,7 @@ func (s *Server) attachTaskAssets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	task.Notify()
-	writeJSON(w, http.StatusOK, mutation)
+	writeOK(w, mutation)
 }
 
 func (s *Server) detachTaskAsset(w http.ResponseWriter, r *http.Request) {
@@ -89,7 +89,7 @@ func (s *Server) detachTaskAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	task.Notify()
-	writeJSON(w, http.StatusOK, map[string]any{"detached": assetID})
+	writeOK(w, map[string]any{"detached": assetID})
 }
 
 func (s *Server) taskIntentAssets(w http.ResponseWriter, r *http.Request) {
@@ -104,5 +104,5 @@ func (s *Server) taskIntentAssets(w http.ResponseWriter, r *http.Request) {
 		writeTaskAssetError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"assets": assets})
+	writeOK(w, map[string]any{"assets": assets})
 }

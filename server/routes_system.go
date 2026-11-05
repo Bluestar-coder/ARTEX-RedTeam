@@ -86,7 +86,7 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 		out["service"] = "artex-redteam"
 		out["version"] = BuildVersion
 	}
-	writeJSON(w, 200, out)
+	writeOK(w, out)
 }
 
 func (s *Server) stats(w http.ResponseWriter, r *http.Request) {
@@ -116,7 +116,7 @@ func (s *Server) stats(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 404, "task not found")
 			return
 		}
-		writeJSON(w, 200, out) // no task selected: only global fields
+		writeOK(w, out) // no task selected: only global fields
 		return
 	}
 	out["llm_configured"] = s.engine.ReadyFor(t)
@@ -171,7 +171,7 @@ func (s *Server) stats(w http.ResponseWriter, r *http.Request) {
 		"goals_total":   len(goals),
 		"goals_met":     goalsMet,
 	}
-	writeJSON(w, 200, out)
+	writeOK(w, out)
 }
 
 // tokenDailyStats returns global token consumption aggregated by calendar day
@@ -179,7 +179,7 @@ func (s *Server) stats(w http.ResponseWriter, r *http.Request) {
 func (s *Server) tokenDailyStats(w http.ResponseWriter, r *http.Request) {
 	days := atoiDefault(r.URL.Query().Get("days"), 30)
 	if s.m.pg == nil {
-		writeJSON(w, 200, []any{})
+		writeOK(w, []any{})
 		return
 	}
 	buckets, err := s.m.pg.TokenDailyAll(days)
@@ -190,7 +190,7 @@ func (s *Server) tokenDailyStats(w http.ResponseWriter, r *http.Request) {
 	if buckets == nil {
 		buckets = []db.DailyTokenBucket{}
 	}
-	writeJSON(w, 200, buckets)
+	writeOK(w, buckets)
 }
 
 // conversationTokens returns per-conversation token summaries so the dashboard can
@@ -198,7 +198,7 @@ func (s *Server) tokenDailyStats(w http.ResponseWriter, r *http.Request) {
 // otherwise count only task (exploration) usage.
 func (s *Server) conversationTokens(w http.ResponseWriter, r *http.Request) {
 	if s.m.pg == nil {
-		writeJSON(w, 200, []any{})
+		writeOK(w, []any{})
 		return
 	}
 	rows, err := s.m.pg.ConversationTokenSummaries()
@@ -206,7 +206,7 @@ func (s *Server) conversationTokens(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, rows)
+	writeOK(w, rows)
 }
 
 // streamActivity is the live SSE tail: it replays history after ?since=<seq>, then
@@ -218,7 +218,7 @@ func (s *Server) getLogs(w http.ResponseWriter, r *http.Request) {
 	since := int64(atoiDefault(r.URL.Query().Get("since"), 0))
 	limit := atoiDefault(r.URL.Query().Get("limit"), 500)
 	lines, cursor := logSink.recent(since, limit)
-	writeJSON(w, 200, map[string]any{"items": lines, "cursor": cursor})
+	writeOK(w, map[string]any{"items": lines, "cursor": cursor})
 }
 
 // getLogsHistory returns older log lines from the DB (before a given db_id).
@@ -226,7 +226,7 @@ func (s *Server) getLogs(w http.ResponseWriter, r *http.Request) {
 // Returns {items:[LogLine], has_more: bool}.
 func (s *Server) getLogsHistory(w http.ResponseWriter, r *http.Request) {
 	if s.m.pg == nil {
-		writeJSON(w, 200, map[string]any{"items": []any{}, "has_more": false})
+		writeOK(w, map[string]any{"items": []any{}, "has_more": false})
 		return
 	}
 	before := int64(atoiDefault(r.URL.Query().Get("before"), 0))
@@ -258,7 +258,7 @@ func (s *Server) getLogsHistory(w http.ResponseWriter, r *http.Request) {
 			Text:  r.Text,
 		})
 	}
-	writeJSON(w, 200, map[string]any{"items": items, "has_more": len(rows) == limit})
+	writeOK(w, map[string]any{"items": items, "has_more": len(rows) == limit})
 }
 
 // streamLogs is the live SSE tail of the backend log: replays history after
@@ -318,7 +318,7 @@ func (s *Server) streamLogs(w http.ResponseWriter, r *http.Request) {
 // is returned as a boolean presence flag (brave_key_set), never the value itself,
 // so the UI can show "configured" without echoing the secret back.
 func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, s.settingsPayload())
+	writeOK(w, s.settingsPayload())
 }
 
 // pgDetectPython re-runs interpreter detection, stores + returns it.
@@ -332,7 +332,7 @@ func (s *Server) pgDetectPython(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"python_interpreter": p})
+	writeOK(w, map[string]any{"python_interpreter": p})
 }
 
 // putSettings applies a settings change. Toggling traffic_capture rebuilds the
@@ -377,8 +377,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		ProxyFetchIntervalMin  *int  `json:"proxy_fetch_interval_min"`
 		ProxyCheckIntervalMin  *int  `json:"proxy_check_interval_min"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, 400, err.Error())
+	if !decodeBodyErr(w, r, &req, 400) {
 		return
 	}
 	if req.ConstraintsInjectPlanner != nil {
@@ -566,7 +565,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	writeJSON(w, 200, s.settingsPayload())
+	writeOK(w, s.settingsPayload())
 }
 
 // testWebSearch runs a real "test" search with the given (or currently saved)
@@ -619,26 +618,26 @@ func (s *Server) testWebSearch(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	results, err := actool.WebSearchProbe(ctx, cfg, probeQuery, 3)
 	if err != nil {
-		writeJSON(w, 200, map[string]any{"ok": false, "error": err.Error(), "backend": backend})
+		writeOK(w, map[string]any{"ok": false, "error": err.Error(), "backend": backend})
 		return
 	}
 	if len(results) == 0 {
-		writeJSON(w, 200, map[string]any{"ok": false, "error": "搜索返回 0 条结果（可能被限流或代理不通）", "backend": backend})
+		writeOK(w, map[string]any{"ok": false, "error": "搜索返回 0 条结果（可能被限流或代理不通）", "backend": backend})
 		return
 	}
-	writeJSON(w, 200, map[string]any{"ok": true, "count": len(results), "backend": backend})
+	writeOK(w, map[string]any{"ok": true, "count": len(results), "backend": backend})
 }
 
 func (s *Server) getAudit(w http.ResponseWriter, r *http.Request) {
 	t := s.m.ResolveTask(r.URL.Query().Get("task"))
 	if t == nil {
-		writeJSON(w, 200, []any{})
+		writeOK(w, []any{})
 		return
 	}
-	writeJSON(w, 200, map[string]any{"entries": t.Guard.Audit(), "attributions": t.Guard.Attributions()})
+	writeOK(w, map[string]any{"entries": t.Guard.Audit(), "attributions": t.Guard.Attributions()})
 }
 
 // gc is a no-op stub (GC not yet implemented in the new asset store).
 func (s *Server) gc(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{"removed": 0})
+	writeOK(w, map[string]any{"removed": 0})
 }

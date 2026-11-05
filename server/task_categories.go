@@ -64,7 +64,7 @@ func (s *Server) pgListTaskCategories(w http.ResponseWriter, _ *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"categories": categories})
+	writeOK(w, map[string]any{"categories": categories})
 }
 
 func (s *Server) pgCreateTaskCategory(w http.ResponseWriter, r *http.Request) {
@@ -99,7 +99,7 @@ func (s *Server) pgRenameTaskCategory(w http.ResponseWriter, r *http.Request) {
 		writeTaskCategoryError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, category)
+	writeOK(w, category)
 }
 
 func (s *Server) pgDeleteTaskCategory(w http.ResponseWriter, r *http.Request) {
@@ -117,7 +117,7 @@ func (s *Server) pgDeleteTaskCategory(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "task category not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"deleted": id})
+	writeOK(w, map[string]any{"deleted": id})
 }
 
 // parseCategoryIDField reads the category_id field shared by the single-task and
@@ -163,7 +163,7 @@ func (s *Server) updateTaskCategory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	task, _ := s.m.Task(taskID)
-	writeJSON(w, http.StatusOK, taskDTO(task, s.resolvedTaskStatus(task)))
+	writeOK(w, taskDTO(task, s.resolvedTaskStatus(task)))
 }
 
 // batchCategoryItem reports one requested task. Unlike batch pause/resume there
@@ -237,5 +237,5 @@ func (s *Server) updateTasksCategoryBatch(w http.ResponseWriter, r *http.Request
 			}
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items, "category": category})
+	writeOK(w, map[string]any{"items": items, "category": category})
 }

@@ -29,7 +29,7 @@ func (s *Server) listActiveFindingRetests(w http.ResponseWriter, r *http.Request
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"retests": items})
+	writeOK(w, map[string]any{"retests": items})
 }
 
 func (s *Server) listFindingRetests(w http.ResponseWriter, r *http.Request) {
@@ -56,7 +56,7 @@ func (s *Server) listFindingRetests(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"retests": items})
+	writeOK(w, map[string]any{"retests": items})
 }
 
 func (s *Server) startFindingRetest(w http.ResponseWriter, r *http.Request) {

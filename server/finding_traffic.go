@@ -145,7 +145,7 @@ func (s *Server) getFindingTraffic(w http.ResponseWriter, r *http.Request) {
 		evidenceError(w, err)
 		return
 	}
-	writeJSON(w, 200, trafficSummary(out))
+	writeOK(w, trafficSummary(out))
 }
 
 func (s *Server) bindFindingTraffic(w http.ResponseWriter, r *http.Request) {
@@ -169,7 +169,7 @@ func (s *Server) bindFindingTraffic(w http.ResponseWriter, r *http.Request) {
 		evidenceError(w, err)
 		return
 	}
-	writeJSON(w, 200, trafficSummary(out))
+	writeOK(w, trafficSummary(out))
 }
 
 func (s *Server) editFindingTraffic(w http.ResponseWriter, r *http.Request) {
@@ -299,7 +299,7 @@ func (s *Server) getFindingTrafficDetail(w http.ResponseWriter, r *http.Request)
 		evidenceError(w, err)
 		return
 	}
-	writeJSON(w, 200, result)
+	writeOK(w, result)
 }
 
 func (s *Server) getFindingTrafficBody(w http.ResponseWriter, r *http.Request) {
@@ -352,7 +352,7 @@ func (s *Server) getFindingTrafficBody(w http.ResponseWriter, r *http.Request) {
 		evidenceError(w, err)
 		return
 	}
-	writeJSON(w, 200, preview)
+	writeOK(w, preview)
 }
 
 func (s *Server) toolGetFindingTraffic() actool.CoreTool {

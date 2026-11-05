@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -26,7 +25,7 @@ func (s *Server) listGoals(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"goals": goalDTOs(goals)})
+	writeOK(w, map[string]any{"goals": goalDTOs(goals)})
 }
 
 // addGoal 人工新增一个目标:落库(挂到任务根 spawns 下)→ 记一条「新增了目标」触发唤醒
@@ -47,8 +46,7 @@ func (s *Server) addGoal(w http.ResponseWriter, r *http.Request) {
 		Text      string `json:"text"`
 		VulnClass string `json:"vulnclass"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeErr(w, 400, "invalid JSON")
+	if !decodeBodyMsg(w, r, &body, 400, "invalid JSON") {
 		return
 	}
 	text := strings.TrimSpace(body.Text)
@@ -75,7 +73,7 @@ func (s *Server) addGoal(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "目标写入后读取失败")
 		return
 	}
-	writeJSON(w, 200, goalDTO(node))
+	writeOK(w, goalDTO(node))
 }
 
 // editGoal 人工修改一个目标文本(及 vulnclass):改库 → 记「用户修改了目标由 old 变为 new」
@@ -101,8 +99,7 @@ func (s *Server) editGoal(w http.ResponseWriter, r *http.Request) {
 		Text      string `json:"text"`
 		VulnClass string `json:"vulnclass"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeErr(w, 400, "invalid JSON")
+	if !decodeBodyMsg(w, r, &body, 400, "invalid JSON") {
 		return
 	}
 	text := strings.TrimSpace(body.Text)
@@ -131,7 +128,7 @@ func (s *Server) editGoal(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "目标更新后读取失败")
 		return
 	}
-	writeJSON(w, 200, goalDTO(updated))
+	writeOK(w, goalDTO(updated))
 }
 
 // deleteGoal 人工删除一个目标(硬删除,级联删边/锚点):删库 → 记「用户删除了该目标 X」
@@ -168,5 +165,5 @@ func (s *Server) deleteGoal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	t.NotifyGoalDeleted(text) // 记「人删除了该目标:…」触发并唤醒 planner(不复活任务)
-	writeJSON(w, 200, map[string]bool{"ok": true})
+	writeOK(w, map[string]bool{"ok": true})
 }

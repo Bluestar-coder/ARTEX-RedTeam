@@ -104,7 +104,7 @@ func (s *Server) pgListTaskTemplates(w http.ResponseWriter, _ *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"templates": templates})
+	writeOK(w, map[string]any{"templates": templates})
 }
 
 func (s *Server) pgCreateTaskTemplate(w http.ResponseWriter, r *http.Request) {
@@ -183,7 +183,7 @@ func (s *Server) pgUpdateTaskTemplate(w http.ResponseWriter, r *http.Request) {
 		writeTaskTemplateErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, template)
+	writeOK(w, template)
 }
 
 func (s *Server) pgDeleteTaskTemplate(w http.ResponseWriter, r *http.Request) {
@@ -205,7 +205,7 @@ func (s *Server) pgDeleteTaskTemplate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "task template not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"deleted": id})
+	writeOK(w, map[string]any{"deleted": id})
 }
 
 func stringValue(value *string) string {

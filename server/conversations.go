@@ -67,7 +67,7 @@ func (s *Server) pgListConversations(w http.ResponseWriter, r *http.Request) {
 		items = append(items, conversationListItem{Conversation: c, Running: s.chatBusy[s.convBusyKey(c.ID)]})
 	}
 	s.chatMu.Unlock()
-	writeJSON(w, 200, map[string]any{"conversations": items})
+	writeOK(w, map[string]any{"conversations": items})
 }
 
 func (s *Server) pgCreateConversation(w http.ResponseWriter, r *http.Request) {
@@ -120,7 +120,7 @@ func (s *Server) pgCreateConversation(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, c)
+	writeOK(w, c)
 }
 
 func (s *Server) pgUpdateConversation(w http.ResponseWriter, r *http.Request) {
@@ -144,7 +144,7 @@ func (s *Server) pgUpdateConversation(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"ok": true})
+	writeOK(w, map[string]any{"ok": true})
 }
 
 // convByID resolves the {id} path value to a conversation (404 if absent).
@@ -207,7 +207,7 @@ func (s *Server) pgRenameConversation(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "conversation not found")
 		return
 	}
-	writeJSON(w, 200, updated)
+	writeOK(w, updated)
 }
 
 func (s *Server) pgDeleteConversation(w http.ResponseWriter, r *http.Request) {
@@ -221,7 +221,7 @@ func (s *Server) pgDeleteConversation(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"deleted": c.ID})
+	writeOK(w, map[string]any{"deleted": c.ID})
 }
 
 const maxConversationDeleteBatch = 100
@@ -295,7 +295,7 @@ func (s *Server) pgDeleteConversationsBatch(w http.ResponseWriter, r *http.Reque
 		}
 		items = append(items, item)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+	writeOK(w, map[string]any{"items": items})
 }
 
 func (s *Server) convBusyKey(id int64) string { return "conv-" + strconv.FormatInt(id, 10) }
@@ -323,7 +323,7 @@ func (s *Server) pgConversationMessages(w http.ResponseWriter, r *http.Request) 
 			writeErr(w, 500, err.Error())
 			return
 		}
-		writeJSON(w, 200, map[string]any{"items": activityDTOs(items), "cursor": cursor, "running": running, "hasMore": false})
+		writeOK(w, map[string]any{"items": activityDTOs(items), "cursor": cursor, "running": running, "hasMore": false})
 		return
 	}
 
@@ -340,7 +340,7 @@ func (s *Server) pgConversationMessages(w http.ResponseWriter, r *http.Request) 
 	if n := len(items); n > 0 {
 		cursor = items[n-1].ID
 	}
-	writeJSON(w, 200, map[string]any{"items": activityDTOs(items), "cursor": cursor, "running": running, "hasMore": hasMore})
+	writeOK(w, map[string]any{"items": activityDTOs(items), "cursor": cursor, "running": running, "hasMore": hasMore})
 }
 
 // pgConversationMsgDetail lazily returns one step's full detail blob.
@@ -359,7 +359,7 @@ func (s *Server) pgConversationMsgDetail(w http.ResponseWriter, r *http.Request)
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"detail": detail})
+	writeOK(w, map[string]any{"detail": detail})
 }
 
 // pgStopConversation aborts the in-flight run for one conversation (manual stop —
@@ -375,11 +375,11 @@ func (s *Server) pgStopConversation(w http.ResponseWriter, r *http.Request) {
 	cancel := s.chatCancel[busyKey]
 	s.chatMu.Unlock()
 	if cancel == nil {
-		writeJSON(w, 200, map[string]any{"status": "idle"}) // nothing running
+		writeOK(w, map[string]any{"status": "idle"}) // nothing running
 		return
 	}
 	cancel(agent.AbortChatStoppedByUser)
-	writeJSON(w, 200, map[string]any{"status": "stopping"})
+	writeOK(w, map[string]any{"status": "stopping"})
 }
 
 // pgSendConversationMessage persists the human turn, then runs the agent in the

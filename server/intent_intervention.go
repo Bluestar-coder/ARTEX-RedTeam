@@ -137,7 +137,7 @@ func (s *Server) sendWorkerMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	writeOK(w, map[string]any{
 		"id":         iid,
 		"state":      "running",
 		"accepted":   true,
