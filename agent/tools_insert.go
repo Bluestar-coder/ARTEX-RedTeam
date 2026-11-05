@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/Bluestar-coder/ARTEX-RedTeam/db"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/internal/toolbuild"
 	actool "github.com/Bluestar-coder/ARTEX-RedTeam/norma/tool"
 )
 
@@ -123,7 +124,7 @@ type assetInputItem struct {
 
 // insertAssets is the unified insert_assets agent tool.
 func (t *ToolSet) insertAssets() actool.CoreTool {
-	return writeTool(
+	return toolbuild.Write(
 		"insert_assets",
 		"批量登记新发现的资产，一次可混合多种类型（type 见枚举）。\n"+
 			"各类型必填字段：root_domain→domain；ip→ip（须为 IPv4/IPv6，非主机名）；subdomain→domain；app→app_name；service(HTTP)→url；service(非HTTP)→service_name+port（ip/domain 至少填一个）；endpoint→url+method。其余字段含义见各自说明。\n"+
@@ -146,14 +147,14 @@ func (t *ToolSet) insertAssets() actool.CoreTool {
 					"record_type": str("DNS 解析类型：A/AAAA/CNAME/MX 等（subdomain 可选）"),
 					"record_value": map[string]any{
 						"type":        "array",
-						"items":       map[string]any{"type": "string"},
+						"items":       toolbuild.String(""),
 						"description": "DNS 解析值列表（subdomain 可选，如 [\"1.2.3.4\",\"2.3.4.5\"]）",
 					},
 					// ip
 					"ip": str("IP 地址，必须是 IPv4/IPv6 地址，不能填主机名（主机名请用 type=subdomain 的 domain 字段）；ip 类型必填；service/endpoint 类型可填，用于关联 IP"),
 					"bound_domains": map[string]any{
 						"type":        "array",
-						"items":       map[string]any{"type": "string"},
+						"items":       toolbuild.String(""),
 						"description": "该 IP 绑定的域名列表（ip 类型可选）",
 					},
 					"open_ports": map[string]any{
@@ -182,7 +183,7 @@ func (t *ToolSet) insertAssets() actool.CoreTool {
 					"favicon_mmh3": str("favicon MMH3 哈希（可选）"),
 					"technologies": map[string]any{
 						"type":        "array",
-						"items":       map[string]any{"type": "string"},
+						"items":       toolbuild.String(""),
 						"description": "指纹/技术栈列表，如 [\"Nginx\",\"Vue\",\"Bootstrap\"]（可选）",
 					},
 					"auth": map[string]any{
@@ -378,7 +379,7 @@ func (t *ToolSet) insertAssets() actool.CoreTool {
 
 // addCompanyScope writes to company_scope table and triggers asset attribution.
 func (t *ToolSet) addCompanyScope() actool.CoreTool {
-	return writeTool(
+	return toolbuild.Write(
 		"add_company_scope",
 		"把域名/IP/CIDR/ICP备案/企业关键词加入某公司的【资产范围】——域名、网络和ICP会自动认领命中的资产，关键词只提供给Agent作为范围提示。\n"+
 			"公司名唯一：company 不存在则新建，已存在则复用(只把范围并进去)。\n"+
@@ -432,7 +433,7 @@ func (t *ToolSet) addCompanyScope() actool.CoreTool {
 // (precise host) by insertAssets; this tool is for DELIBERATELY WIDENING: pull a whole
 // root domain or whole company into scope, or add a specific subdomain / ip.
 func (t *ToolSet) addTaskScope() actool.CoreTool {
-	return writeTool(
+	return toolbuild.Write(
 		"add_task_scope",
 		"把测试范围加入【本任务】——这是本任务的授权边界，也是资产测试覆盖度的分母。\n"+
 			"kind 支持：company(整个公司名下资产) / root_domain(整个根域，含所有子域) / subdomain(单个精确子域) / ip / cidr / icp / keyword。\n"+
@@ -488,7 +489,7 @@ func (t *ToolSet) addTaskScope() actool.CoreTool {
 // listUntestedAssets lets the plan agent pull the current + directly inherited
 // scope's not-yet-tested assets on demand (filter by type, paginated).
 func (t *ToolSet) listUntestedAssets() actool.CoreTool {
-	return readTool(
+	return toolbuild.Read(
 		"list_untested_assets",
 		"查询【本任务及直接关联任务】范围内、还没被事实锚点覆盖的资产（关联范围只读，供你自己判断要不要补测，不代替你决策）。\n"+
 			"可选按资产类型过滤：root_domain/subdomain/service/app/endpoint/ip。\n"+
@@ -531,7 +532,7 @@ func (t *ToolSet) listUntestedAssets() actool.CoreTool {
 
 // listAssets lets an agent query the asset table.
 func (t *ToolSet) listAssets() actool.CoreTool {
-	return readTool(
+	return toolbuild.Read(
 		"list_assets",
 		"查询资产库：DSL 表达式搜索，或按 id/ids 直取；支持分页。只返回【本任务及直接关联任务】测试范围内的资产。\n"+
 			"DSL：field=value 模糊(ILIKE) | field==value 精确 | field!=value 排除 | 数字字段支持 > >= < <= | 裸词=全文模糊；AND/OR 组合(AND 优先级高)，可用括号分组。资产类型用独立 type 参数，不写进 DSL。\n"+
@@ -588,7 +589,7 @@ func (t *ToolSet) listAssets() actool.CoreTool {
 
 // listCompanies lets an agent enumerate companies (企业) with their scope + asset count.
 func (t *ToolSet) listCompanies() actool.CoreTool {
-	return readTool(
+	return toolbuild.Read(
 		"list_companies",
 		"列出资产库中的【企业/公司】及其资产范围(scope)与已归属资产数。用于查看有哪些公司、"+
 			"拿到 company_id（insert_assets 关联 app、list_assets 按 company_id 过滤时用）。"+
@@ -635,7 +636,7 @@ func (t *ToolSet) listCompanies() actool.CoreTool {
 // on its own (e.g. curl -x, proxychains) for a specific target. Read-only: it only
 // lists nodes, it does not change any global egress setting.
 func (t *ToolSet) listProxies() actool.CoreTool {
-	return readTool(
+	return toolbuild.Read(
 		"list_proxies",
 		"列出代理池中【当前健康】的出口代理节点，供你在命令里自行使用（如 curl -x <proxy>、"+
 			"proxychains、nmap --proxies）访问目标、轮换出口 IP。返回 http/https/socks5 代理的 "+

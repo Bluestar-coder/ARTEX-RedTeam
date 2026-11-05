@@ -23,8 +23,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Bluestar-coder/ARTEX-RedTeam/internal/toolbuild"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/norma/llm"
-	"github.com/Bluestar-coder/ARTEX-RedTeam/norma/permission"
 	actool "github.com/Bluestar-coder/ARTEX-RedTeam/norma/tool"
 )
 
@@ -285,13 +285,13 @@ func (c *Client) wrap(rt remoteTool) actool.CoreTool {
 		schema = map[string]any{"type": "object"}
 	}
 	full := ToolName(c.server, rt.Name)
-	return actool.Build(actool.Spec{
+	return toolbuild.Build(toolbuild.Spec{
 		Name:        full,
 		Description: rt.Description,
 		Schema:      schema,
-		Permissions: func(context.Context, json.RawMessage, permission.Context) permission.Decision {
-			return permission.AskUser("call MCP tool " + full + "?")
-		},
+		Access:      toolbuild.AccessReadWrite,
+		Permission:  toolbuild.PermissionAsk,
+		AskPrompt:   "call MCP tool " + full + "?",
 		Run: func(ctx context.Context, in json.RawMessage, tc *actool.ToolContext) (actool.Result, error) {
 			var args any
 			if len(in) > 0 {

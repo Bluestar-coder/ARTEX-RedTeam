@@ -13,6 +13,7 @@ import (
 	"sort"
 
 	"github.com/Bluestar-coder/ARTEX-RedTeam/db"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/internal/toolbuild"
 	actool "github.com/Bluestar-coder/ARTEX-RedTeam/norma/tool"
 )
 
@@ -120,13 +121,9 @@ func (t *ToolSet) resolveDigest(id int64) (*db.Node, *db.ExplorationStore, int64
 func (t *ToolSet) expandDigest() actool.CoreTool {
 	return t.writeExpTool("expand_digest",
 		"展开一个 cold digest：返回它折叠的成员紧凑列表（id/summary/state/confidence），与概览 recent_facts/recent_done_intents 同形状。要某条完整细节/证据用 node_detail(member_id)。",
-		map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"id": map[string]any{"type": "integer", "description": "digest 节点 id（来自概览 cold_digests）"},
-			},
-			"required": []any{"id"},
-		},
+		toolbuild.Object(map[string]any{
+			"id": toolbuild.Integer("digest 节点 id（来自概览 cold_digests）"),
+		}, "id"),
 		func(ctx context.Context, raw json.RawMessage) (actool.Result, error) {
 			var in struct {
 				ID int64 `json:"id"`
