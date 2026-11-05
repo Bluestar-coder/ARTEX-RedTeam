@@ -1,0 +1,90 @@
+// Tool-contract dump (server + traffic families).
+//
+// Copied by run.sh into <worktree>/server/zz_toolsnap_test.go. It lives in
+// package server because the tool factories are unexported; the file is deleted
+// again by run.sh so it never becomes part of the tree.
+package server
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"testing"
+
+	actool "github.com/Bluestar-coder/ARTEX-RedTeam/norma/tool"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/norma/permission"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/traffic"
+)
+
+const zzResultShape = "norma/tool.Result{Content []llm.ContentBlock; IsError bool; Extra []llm.Message}"
+
+type zzToolView struct {
+	Family               string         `json:"family"`
+	Name                 string         `json:"name"`
+	Description          string         `json:"description"`
+	Prompt               string         `json:"prompt"`
+	InputSchema          map[string]any `json:"input_schema"`
+	ReadOnlyAtEmptyInput bool           `json:"read_only_at_empty_input"`
+	ConcurSafeEmptyInput bool           `json:"concurrent_safe_at_empty_input"`
+	PermissionBehavior   string         `json:"permission_behavior"`
+	PermissionMessage    string         `json:"permission_message"`
+	RawInput             bool           `json:"raw_input"`
+	ResultShape          string         `json:"result_shape"`
+}
+
+func zzContract(family string, t actool.CoreTool) zzToolView {
+	dec := t.CheckPermissions(context.Background(), nil, permission.Context{})
+	raw := false
+	if r, ok := t.(interface{ AcceptsRawInput() bool }); ok {
+		raw = r.AcceptsRawInput()
+	}
+	return zzToolView{
+		Family:               family,
+		Name:                 t.Name(),
+		Description:          t.Description(),
+		Prompt:               t.Prompt(),
+		InputSchema:          t.InputSchema(),
+		ReadOnlyAtEmptyInput: t.IsReadOnly(nil),
+		ConcurSafeEmptyInput: t.IsConcurrencySafe(nil),
+		PermissionBehavior:   string(dec.Behavior),
+		PermissionMessage:    dec.Message,
+		RawInput:             raw,
+		ResultShape:          zzResultShape,
+	}
+}
+
+func TestZZToolSnapshot(t *testing.T) {
+	out := os.Getenv("TOOLSNAP_OUT")
+	if out == "" {
+		t.Skip("TOOLSNAP_OUT unset")
+	}
+	s := &Server{}
+	groups := []struct {
+		family string
+		tools  []actool.CoreTool
+	}{
+		{"server", s.orchestrationTools()},
+		{"server", s.platformTools()},
+		{"server", s.findingRetestTools()},
+		{"traffic", (&traffic.Traffic{}).Tools()},
+	}
+	f, err := os.Create(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	enc := json.NewEncoder(f)
+	seen := map[string]bool{}
+	for _, g := range groups {
+		for _, tl := range g.tools {
+			key := g.family + "/" + tl.Name()
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			if err := enc.Encode(zzContract(g.family, tl)); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+}
