@@ -1960,21 +1960,19 @@ func (s *ExplorationStore) ActivityByIDs(ids []int64) ([]Activity, error) {
 		ph[i] = fmt.Sprintf("$%d", i+2)
 		args[i+1] = id
 	}
-	rows, err := s.db.Query(`SELECT id, node_id, COALESCE(kind,''), COALESCE(tool,''), is_error, COALESCE(detail,'')
-FROM activity WHERE exploration_id=$1 AND kind<>'thinking' AND id IN (`+strings.Join(ph, ",")+`) ORDER BY id`, args...)
+	out, err := queryRows(s.db, `SELECT id, node_id, COALESCE(kind,''), COALESCE(tool,''), is_error, COALESCE(detail,'')
+FROM activity WHERE exploration_id=$1 AND kind<>'thinking' AND id IN (`+strings.Join(ph, ",")+`) ORDER BY id`, args, func(r *sql.Rows) (Activity, error) {
+		var a Activity
+		err := r.Scan(&a.ID, &a.NodeID, &a.Kind, &a.Tool, &a.IsError, &a.Detail)
+		return a, err
+	})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	out := []Activity{}
-	for rows.Next() {
-		var a Activity
-		if err := rows.Scan(&a.ID, &a.NodeID, &a.Kind, &a.Tool, &a.IsError, &a.Detail); err != nil {
-			return nil, err
-		}
-		out = append(out, a)
+	if out == nil {
+		out = []Activity{} // 历史契约：无活动返回非 nil 空切片
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // ActivityByIDsForTerminalIntents is the inherited-detail read boundary. It
@@ -1992,25 +1990,23 @@ func (s *ExplorationStore) ActivityByIDsForTerminalIntents(ids []int64) ([]Activ
 		ph[i] = fmt.Sprintf("$%d", i+2)
 		args[i+1] = id
 	}
-	rows, err := s.db.Query(`SELECT a.id, a.node_id, COALESCE(a.kind,''), COALESCE(a.tool,''), a.is_error, COALESCE(a.detail,'')
+	out, err := queryRows(s.db, `SELECT a.id, a.node_id, COALESCE(a.kind,''), COALESCE(a.tool,''), a.is_error, COALESCE(a.detail,'')
 	FROM activity a
 	JOIN exploration_nodes n ON n.id=a.node_id AND n.exploration_id=a.exploration_id
 		WHERE a.exploration_id=$1 AND a.kind NOT IN ('thinking','usage') AND n.kind='intent'
 	  AND n.state IN ('done','blocked','exhausted','stopped')
-	  AND a.id IN (`+strings.Join(ph, ",")+`) ORDER BY a.id`, args...)
+	  AND a.id IN (`+strings.Join(ph, ",")+`) ORDER BY a.id`, args, func(r *sql.Rows) (Activity, error) {
+		var a Activity
+		err := r.Scan(&a.ID, &a.NodeID, &a.Kind, &a.Tool, &a.IsError, &a.Detail)
+		return a, err
+	})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	out := []Activity{}
-	for rows.Next() {
-		var a Activity
-		if err := rows.Scan(&a.ID, &a.NodeID, &a.Kind, &a.Tool, &a.IsError, &a.Detail); err != nil {
-			return nil, err
-		}
-		out = append(out, a)
+	if out == nil {
+		out = []Activity{} // 历史契约：无活动返回非 nil 空切片
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // AddStandaloneFinding writes a finding to the standalone findings table, which

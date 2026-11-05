@@ -192,50 +192,46 @@ ORDER BY n.id`, lastID)
 // TimedOutTasksSince returns tasks that reached status='timeout' with id > lastID,
 // ordered by id (monotonic watermark → no double-fire across restarts).
 func (d *DB) TimedOutTasksSince(lastID int64) ([]TaskEvent, error) {
-	rows, err := d.Query(`
+	out, err := queryRows(d, `
 SELECT id, description, goal FROM tasks
 WHERE status='timeout' AND deleted_at IS NULL AND id > $1
-ORDER BY id`, lastID)
+ORDER BY id`, []any{lastID}, func(r *sql.Rows) (TaskEvent, error) {
+		var e TaskEvent
+		err := r.Scan(&e.NodeID, &e.TaskDesc, &e.TaskGoal)
+		e.TaskID = e.NodeID // task id doubles as NodeID for the watermark
+		e.Summary = e.TaskGoal
+		return e, err
+	})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	out := []TaskEvent{}
-	for rows.Next() {
-		var e TaskEvent
-		if err := rows.Scan(&e.NodeID, &e.TaskDesc, &e.TaskGoal); err != nil {
-			return nil, err
-		}
-		e.TaskID = e.NodeID // task id doubles as NodeID for the watermark
-		e.Summary = e.TaskGoal
-		out = append(out, e)
+	if out == nil {
+		out = []TaskEvent{} // 历史契约：无事件返回非 nil 空切片
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // NewTasksSince returns tasks created with id > lastID (excluding deleted),
 // ordered by id (monotonic watermark → no double-fire across restarts). Triggered
 // agent runs are conversations, not tasks, so this never fires on its own output.
 func (d *DB) NewTasksSince(lastID int64) ([]TaskEvent, error) {
-	rows, err := d.Query(`
+	out, err := queryRows(d, `
 SELECT id, description, goal FROM tasks
 WHERE deleted_at IS NULL AND id > $1
-ORDER BY id`, lastID)
+ORDER BY id`, []any{lastID}, func(r *sql.Rows) (TaskEvent, error) {
+		var e TaskEvent
+		err := r.Scan(&e.NodeID, &e.TaskDesc, &e.TaskGoal)
+		e.TaskID = e.NodeID // task id doubles as NodeID for the watermark
+		e.Summary = e.TaskGoal
+		return e, err
+	})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	out := []TaskEvent{}
-	for rows.Next() {
-		var e TaskEvent
-		if err := rows.Scan(&e.NodeID, &e.TaskDesc, &e.TaskGoal); err != nil {
-			return nil, err
-		}
-		e.TaskID = e.NodeID // task id doubles as NodeID for the watermark
-		e.Summary = e.TaskGoal
-		out = append(out, e)
+	if out == nil {
+		out = []TaskEvent{} // 历史契约：无事件返回非 nil 空切片
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // NewToolCallsSince returns completed tool calls (a tool_result row) with activity
