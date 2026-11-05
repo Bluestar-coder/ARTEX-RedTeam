@@ -32,7 +32,8 @@ func TestLLMRecordsMigrateAddsRawColumnsToOldTable(t *testing.T) {
 		var n int
 		if err := tx.QueryRow(
 			`SELECT count(*) FROM information_schema.columns
-			 WHERE table_name='llm_records' AND column_name=$1`, col).Scan(&n); err != nil {
+			 WHERE table_schema = current_schema()
+			   AND table_name='llm_records' AND column_name=$1`, col).Scan(&n); err != nil {
 			t.Fatalf("inspect %s: %v", col, err)
 		}
 		if n != 1 {
