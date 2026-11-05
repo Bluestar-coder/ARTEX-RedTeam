@@ -56,20 +56,31 @@ func (sc *Scheduler) Run(ctx context.Context) {
 	}
 }
 
+// seedWatermark 首次启动时把 watermark 初始化为当前最大事件 id，避免把历史
+// backlog 一次性重放。query(0) 复用与增量触发完全相同的查询（SQL/语义不变）。
+func (sc *Scheduler) seedWatermark(key string, query func(last int64) ([]db.TaskEvent, error)) {
+	if sc.mustState(key) != "" {
+		return
+	}
+	var maxID int64
+	if evs, err := query(0); err == nil {
+		for _, e := range evs {
+			if e.NodeID > maxID {
+				maxID = e.NodeID
+			}
+		}
+	}
+	_ = sc.pg.SetSchedState(key, strconv.FormatInt(maxID, 10))
+}
+
 // init seeds the watermarks on first run so pre-existing findings/goals don't all
 // fire at once — only events created AFTER the scheduler first starts count.
 func (sc *Scheduler) init() {
-	if sc.mustState(schedKeyLastFinding) == "" {
-		var maxID int64
-		if evs, err := sc.pg.NewFindingsSince(0); err == nil {
-			for _, e := range evs {
-				if e.NodeID > maxID {
-					maxID = e.NodeID
-				}
-			}
-		}
-		_ = sc.pg.SetSchedState(schedKeyLastFinding, strconv.FormatInt(maxID, 10))
-	}
+	sc.seedWatermark(schedKeyLastFinding, sc.pg.NewFindingsSince)
+	sc.seedWatermark(schedKeyLastTimeout, sc.pg.TimedOutTasksSince)
+	sc.seedWatermark(schedKeyLastToolCall, sc.pg.NewToolCallsSince)
+	sc.seedWatermark(schedKeyLastTaskCreate, sc.pg.NewTasksSince)
+
 	if sc.mustState(schedKeyFiredGoals) == "" {
 		set := map[int64]bool{}
 		if evs, err := sc.pg.MetGoals(); err == nil {
@@ -78,39 +89,6 @@ func (sc *Scheduler) init() {
 			}
 		}
 		sc.saveFiredGoalSet(set)
-	}
-	if sc.mustState(schedKeyLastTimeout) == "" {
-		var maxID int64
-		if evs, err := sc.pg.TimedOutTasksSince(0); err == nil {
-			for _, e := range evs {
-				if e.NodeID > maxID {
-					maxID = e.NodeID
-				}
-			}
-		}
-		_ = sc.pg.SetSchedState(schedKeyLastTimeout, strconv.FormatInt(maxID, 10))
-	}
-	if sc.mustState(schedKeyLastToolCall) == "" {
-		var maxID int64
-		if evs, err := sc.pg.NewToolCallsSince(0); err == nil {
-			for _, e := range evs {
-				if e.NodeID > maxID {
-					maxID = e.NodeID
-				}
-			}
-		}
-		_ = sc.pg.SetSchedState(schedKeyLastToolCall, strconv.FormatInt(maxID, 10))
-	}
-	if sc.mustState(schedKeyLastTaskCreate) == "" {
-		var maxID int64
-		if evs, err := sc.pg.NewTasksSince(0); err == nil {
-			for _, e := range evs {
-				if e.NodeID > maxID {
-					maxID = e.NodeID
-				}
-			}
-		}
-		_ = sc.pg.SetSchedState(schedKeyLastTaskCreate, strconv.FormatInt(maxID, 10))
 	}
 }
 
@@ -147,23 +125,33 @@ func (sc *Scheduler) fireIntervals(triggers []*db.AgentTrigger) {
 	}
 }
 
-// fireFindings fires on_finding triggers for findings above the persisted
-// watermark (monotonic node id → no double-fire across restarts).
-func (sc *Scheduler) fireFindings(triggers []*db.AgentTrigger) {
+// watermarkFire 是一次「按持久化 watermark 增量触发」的差异描述。fireWatermark
+// 统一实现控制流：读 watermark → 查增量事件（SQL 由调用方的 db 方法提供，语义
+// 不变）→ 推进 watermark（即使没有活跃触发器也要推进，避免后续启用时重放历史）
+// → 分发触发器。各触发器的匹配条件、跳过规则、标题与消息模板通过闭包传入。
+type watermarkFire struct {
+	stateKey string
+	match    func(*db.AgentTrigger) bool
+	query    func(last int64) ([]db.TaskEvent, error)
+	skip     func(db.TaskEvent) bool
+	runTitle func(db.TaskEvent) string
+	ctxMsg   func(db.TaskEvent) string
+	message  func(*db.AgentTrigger, string) string
+	allow    func(*db.AgentTrigger, db.TaskEvent) bool
+}
+
+func (sc *Scheduler) fireWatermark(triggers []*db.AgentTrigger, cfg watermarkFire) {
 	var want []*db.AgentTrigger
 	for _, tr := range triggers {
-		if tr.OnFinding {
+		if cfg.match(tr) {
 			want = append(want, tr)
 		}
 	}
-	last, _ := strconv.ParseInt(sc.mustState(schedKeyLastFinding), 10, 64)
-	events, err := sc.pg.NewFindingsSince(last)
+	last, _ := strconv.ParseInt(sc.mustState(cfg.stateKey), 10, 64)
+	events, err := cfg.query(last)
 	if err != nil || len(events) == 0 {
 		return
 	}
-	// Advance the watermark whether or not any on_finding trigger is active: a
-	// finding fires only for triggers live at the moment it appears. Otherwise a
-	// trigger enabled later would replay the entire historical backlog at once.
 	maxID := last
 	for _, e := range events {
 		if e.NodeID > maxID {
@@ -172,13 +160,33 @@ func (sc *Scheduler) fireFindings(triggers []*db.AgentTrigger) {
 		if len(want) == 0 {
 			continue
 		}
-		msgCtx := fmt.Sprintf("\n\n【本次由任务发现 finding 触发】\n发现: [%s/%s] %s",
-			e.VulnClass, e.Severity, e.Summary)
+		if cfg.skip != nil && cfg.skip(e) {
+			continue
+		}
+		msgCtx := cfg.ctxMsg(e)
 		for _, tr := range want {
-			sc.s.StartTriggeredRun(tr.AgentKey, fmt.Sprintf("finding 触发 · task#%d", e.TaskID), tr.FindingMessage+msgCtx, e.TaskID, true, e.TaskDesc, e.TaskGoal)
+			if cfg.allow != nil && !cfg.allow(tr, e) {
+				continue
+			}
+			sc.s.StartTriggeredRun(tr.AgentKey, cfg.runTitle(e), cfg.message(tr, msgCtx), e.TaskID, true, e.TaskDesc, e.TaskGoal)
 		}
 	}
-	_ = sc.pg.SetSchedState(schedKeyLastFinding, strconv.FormatInt(maxID, 10))
+	_ = sc.pg.SetSchedState(cfg.stateKey, strconv.FormatInt(maxID, 10))
+}
+
+// fireFindings fires on_finding triggers for findings above the persisted
+// watermark (monotonic node id → no double-fire across restarts).
+func (sc *Scheduler) fireFindings(triggers []*db.AgentTrigger) {
+	sc.fireWatermark(triggers, watermarkFire{
+		stateKey: schedKeyLastFinding,
+		match:    func(tr *db.AgentTrigger) bool { return tr.OnFinding },
+		query:    sc.pg.NewFindingsSince,
+		runTitle: func(e db.TaskEvent) string { return fmt.Sprintf("finding 触发 · task#%d", e.TaskID) },
+		ctxMsg: func(e db.TaskEvent) string {
+			return fmt.Sprintf("\n\n【本次由任务发现 finding 触发】\n发现: [%s/%s] %s", e.VulnClass, e.Severity, e.Summary)
+		},
+		message: func(tr *db.AgentTrigger, c string) string { return tr.FindingMessage + c },
+	})
 }
 
 // fireGoals fires on_goal_met triggers for met goals not yet in the fired set.
@@ -219,108 +227,52 @@ func (sc *Scheduler) fireGoals(triggers []*db.AgentTrigger) {
 // fireTaskTimeouts fires on_task_timeout triggers for tasks that newly reached
 // status='timeout' above the persisted watermark (task id → no double-fire).
 func (sc *Scheduler) fireTaskTimeouts(triggers []*db.AgentTrigger) {
-	var want []*db.AgentTrigger
-	for _, tr := range triggers {
-		if tr.OnTaskTimeout {
-			want = append(want, tr)
-		}
-	}
-	last, _ := strconv.ParseInt(sc.mustState(schedKeyLastTimeout), 10, 64)
-	events, err := sc.pg.TimedOutTasksSince(last)
-	if err != nil || len(events) == 0 {
-		return
-	}
-	// Advance the watermark even with no active trigger — see fireFindings.
-	maxID := last
-	for _, e := range events {
-		if e.NodeID > maxID {
-			maxID = e.NodeID
-		}
-		if len(want) == 0 {
-			continue
-		}
-		msgCtx := "\n\n【本次由任务超时触发】"
-		for _, tr := range want {
-			sc.s.StartTriggeredRun(tr.AgentKey, fmt.Sprintf("超时触发 · task#%d", e.TaskID), tr.TaskTimeoutMessage+msgCtx, e.TaskID, true, e.TaskDesc, e.TaskGoal)
-		}
-	}
-	_ = sc.pg.SetSchedState(schedKeyLastTimeout, strconv.FormatInt(maxID, 10))
+	sc.fireWatermark(triggers, watermarkFire{
+		stateKey: schedKeyLastTimeout,
+		match:    func(tr *db.AgentTrigger) bool { return tr.OnTaskTimeout },
+		query:    sc.pg.TimedOutTasksSince,
+		runTitle: func(e db.TaskEvent) string { return fmt.Sprintf("超时触发 · task#%d", e.TaskID) },
+		ctxMsg:   func(db.TaskEvent) string { return "\n\n【本次由任务超时触发】" },
+		message:  func(tr *db.AgentTrigger, c string) string { return tr.TaskTimeoutMessage + c },
+	})
 }
 
 // fireTaskCreates fires on_task_create triggers for tasks newly created above the
 // persisted watermark (task id → no double-fire across restarts).
 func (sc *Scheduler) fireTaskCreates(triggers []*db.AgentTrigger) {
-	var want []*db.AgentTrigger
-	for _, tr := range triggers {
-		if tr.OnTaskCreate {
-			want = append(want, tr)
-		}
-	}
-	last, _ := strconv.ParseInt(sc.mustState(schedKeyLastTaskCreate), 10, 64)
-	events, err := sc.pg.NewTasksSince(last)
-	if err != nil || len(events) == 0 {
-		return
-	}
-	// Advance the watermark even with no active trigger — see fireFindings.
-	maxID := last
-	for _, e := range events {
-		if e.NodeID > maxID {
-			maxID = e.NodeID
-		}
-		if len(want) == 0 {
-			continue
-		}
-		msgCtx := "\n\n【本次由任务创建触发】"
-		for _, tr := range want {
-			sc.s.StartTriggeredRun(tr.AgentKey, fmt.Sprintf("任务创建触发 · task#%d", e.TaskID), tr.TaskCreateMessage+msgCtx, e.TaskID, true, e.TaskDesc, e.TaskGoal)
-		}
-	}
-	_ = sc.pg.SetSchedState(schedKeyLastTaskCreate, strconv.FormatInt(maxID, 10))
+	sc.fireWatermark(triggers, watermarkFire{
+		stateKey: schedKeyLastTaskCreate,
+		match:    func(tr *db.AgentTrigger) bool { return tr.OnTaskCreate },
+		query:    sc.pg.NewTasksSince,
+		runTitle: func(e db.TaskEvent) string { return fmt.Sprintf("任务创建触发 · task#%d", e.TaskID) },
+		ctxMsg:   func(db.TaskEvent) string { return "\n\n【本次由任务创建触发】" },
+		message:  func(tr *db.AgentTrigger, c string) string { return tr.TaskCreateMessage + c },
+	})
 }
 
 // fireToolCalls fires on_tool_call triggers for tool calls (tool_result rows) above
 // the persisted watermark whose tool name is in the trigger's selected set. The fire
 // message carries the task id/desc/goal + tool name + (truncated) input & output.
 func (sc *Scheduler) fireToolCalls(triggers []*db.AgentTrigger) {
-	var want []*db.AgentTrigger
-	for _, tr := range triggers {
-		if tr.OnToolCall && len(tr.ToolNames) > 0 {
-			want = append(want, tr)
-		}
-	}
-	last, _ := strconv.ParseInt(sc.mustState(schedKeyLastToolCall), 10, 64)
-	events, err := sc.pg.NewToolCallsSince(last)
-	if err != nil || len(events) == 0 {
-		return
-	}
-	// Advance the watermark even with no active trigger — see fireFindings.
-	maxID := last
-	for _, e := range events {
-		if e.NodeID > maxID {
-			maxID = e.NodeID
-		}
-		if len(want) == 0 {
-			continue
-		}
+	sc.fireWatermark(triggers, watermarkFire{
+		stateKey: schedKeyLastToolCall,
+		match:    func(tr *db.AgentTrigger) bool { return tr.OnToolCall && len(tr.ToolNames) > 0 },
+		query:    sc.pg.NewToolCallsSince,
 		// A failed finding write has no committed finding to report. Keep other
 		// tool-error triggers available for user-defined automation.
-		if e.ToolIsErr && e.Tool == "report_finding" {
-			continue
-		}
-		errTag := ""
-		if e.ToolIsErr {
-			errTag = "[error] "
-		}
-		msgCtx := fmt.Sprintf("\n\n【本次由工具调用触发】\n工具: %s\n入参: %s\n返回: %s%s",
-			e.Tool, trunc(e.ToolInput, 1500), errTag, trunc(e.ToolOutput, 1500))
-		for _, tr := range want {
-			if !containsFold(tr.ToolNames, e.Tool) {
-				continue
+		skip:     func(e db.TaskEvent) bool { return e.ToolIsErr && e.Tool == "report_finding" },
+		runTitle: func(e db.TaskEvent) string { return fmt.Sprintf("工具触发 · %s · task#%d", e.Tool, e.TaskID) },
+		ctxMsg: func(e db.TaskEvent) string {
+			errTag := ""
+			if e.ToolIsErr {
+				errTag = "[error] "
 			}
-			sc.s.StartTriggeredRun(tr.AgentKey, fmt.Sprintf("工具触发 · %s · task#%d", e.Tool, e.TaskID), tr.ToolCallMessage+msgCtx, e.TaskID, true, e.TaskDesc, e.TaskGoal)
-		}
-	}
-	_ = sc.pg.SetSchedState(schedKeyLastToolCall, strconv.FormatInt(maxID, 10))
+			return fmt.Sprintf("\n\n【本次由工具调用触发】\n工具: %s\n入参: %s\n返回: %s%s",
+				e.Tool, trunc(e.ToolInput, 1500), errTag, trunc(e.ToolOutput, 1500))
+		},
+		message: func(tr *db.AgentTrigger, c string) string { return tr.ToolCallMessage + c },
+		allow:   func(tr *db.AgentTrigger, e db.TaskEvent) bool { return containsFold(tr.ToolNames, e.Tool) },
+	})
 }
 
 // containsFold reports whether name is in set (case-insensitive).
