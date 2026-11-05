@@ -1,0 +1,102 @@
+// Tool-contract dump (agent + SDK families).
+//
+// This file is copied by run.sh into <worktree>/internal/toolsnap/main.go so the
+// same dumper can run against the pre-refactor and post-refactor commits. It must
+// only use APIs that exist in both: agent.NewToolSet/MainAgentTools/PlannerTools/
+// WorkerTools/AllDomainTools and the per-tool accessors.
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+
+	"github.com/Bluestar-coder/ARTEX-RedTeam/agent"
+	actool "github.com/Bluestar-coder/ARTEX-RedTeam/norma/tool"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/norma/permission"
+)
+
+// The tools' return type is not declared per tool: every handler returns
+// actool.Result. We still record that shape explicitly so the snapshot covers
+// "return structure" instead of silently omitting it.
+const resultShape = "norma/tool.Result{Content []llm.ContentBlock; IsError bool; Extra []llm.Message}"
+
+type view struct {
+	Family               string         `json:"family"`
+	Name                 string         `json:"name"`
+	Description          string         `json:"description"`
+	Prompt               string         `json:"prompt"`
+	InputSchema          map[string]any `json:"input_schema"`
+	ReadOnlyAtEmptyInput bool           `json:"read_only_at_empty_input"`
+	ConcurSafeEmptyInput bool           `json:"concurrent_safe_at_empty_input"`
+	PermissionBehavior   string         `json:"permission_behavior"`
+	PermissionMessage    string         `json:"permission_message"`
+	RawInput             bool           `json:"raw_input"`
+	ResultShape          string         `json:"result_shape"`
+}
+
+func contract(family string, t actool.CoreTool) view {
+	dec := t.CheckPermissions(context.Background(), nil, permission.Context{})
+	raw := false
+	if r, ok := t.(interface{ AcceptsRawInput() bool }); ok {
+		raw = r.AcceptsRawInput()
+	}
+	return view{
+		Family:               family,
+		Name:                 t.Name(),
+		Description:          t.Description(),
+		Prompt:               t.Prompt(),
+		InputSchema:          t.InputSchema(),
+		ReadOnlyAtEmptyInput: t.IsReadOnly(nil),
+		ConcurSafeEmptyInput: t.IsConcurrencySafe(nil),
+		PermissionBehavior:   string(dec.Behavior),
+		PermissionMessage:    dec.Message,
+		RawInput:             raw,
+		ResultShape:          resultShape,
+	}
+}
+
+func main() {
+	ts := agent.NewToolSet(nil, "")
+
+	var tools []actool.CoreTool
+	tools = append(tools, ts.MainAgentTools()...)
+	tools = append(tools, ts.PlannerTools()...)
+	tools = append(tools, ts.WorkerTools()...)
+	// Accessor-only tools: list_worker_traces is not in any per-agent list (it is
+	// injected per task by the server's cross-task delegate), but it is still a
+	// project tool that this snapshot must cover.
+	tools = append(tools,
+		ts.GraphOverviewTool(), ts.ListFindingsTool(), ts.GetWorkerTraceTool(),
+		ts.ListWorkerTracesTool(), ts.SearchWorkerTracesTool(), ts.NodeDetailTool(),
+		ts.AddHintTool(),
+	)
+
+	// SDK tools, composed the same way agentcore composes them for a session.
+	sdk := []actool.CoreTool{}
+	sdk = append(sdk, actool.DefaultTools()...)
+	sdk = append(sdk, actool.ShellSessionTools()...)
+	sdk = append(sdk, actool.NewWebFetch(actool.WebFetchConfig{}))
+	sdk = append(sdk, actool.NewTodoStore().Tool())
+	sdk = append(sdk, actool.NewTaskOutput(), actool.NewTaskStop(), actool.NewTaskList(), actool.NewMonitor())
+
+	seen := map[string]bool{}
+	enc := json.NewEncoder(os.Stdout)
+	for _, pair := range []struct {
+		family string
+		tools  []actool.CoreTool
+	}{{"agent", tools}, {"sdk", sdk}} {
+		for _, t := range pair.tools {
+			key := pair.family + "/" + t.Name()
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			if err := enc.Encode(contract(pair.family, t)); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+		}
+	}
+}
