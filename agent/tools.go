@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/Bluestar-coder/ARTEX-RedTeam/db"
-	acperm "github.com/Bluestar-coder/ARTEX-RedTeam/norma/permission"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/internal/toolbuild"
 	actool "github.com/Bluestar-coder/ARTEX-RedTeam/norma/tool"
 )
 
@@ -264,40 +264,14 @@ func pidList(raw []json.RawMessage) []int64 {
 }
 
 func obj(props map[string]any, required ...string) map[string]any {
-	m := map[string]any{"type": "object", "properties": props}
-	if len(required) > 0 {
-		m["required"] = required
-	}
-	return m
+	return toolbuild.Object(props, required...)
 }
-func str(desc string) map[string]any { return map[string]any{"type": "string", "description": desc} }
+func str(desc string) map[string]any { return toolbuild.String(desc) }
 func intp(desc string) map[string]any {
-	return map[string]any{"type": "integer", "description": desc}
+	return toolbuild.Integer(desc)
 }
 func idp(desc string) map[string]any {
-	return map[string]any{"type": "integer", "description": desc}
-}
-
-func readTool(name, desc string, schema map[string]any, run func(context.Context, json.RawMessage) (actool.Result, error)) actool.CoreTool {
-	return actool.Build(actool.Spec{
-		Name: name, Description: desc, Schema: schema,
-		ReadOnly:    func(json.RawMessage) bool { return true },
-		Concurrent:  func(json.RawMessage) bool { return true },
-		Permissions: func(context.Context, json.RawMessage, acperm.Context) acperm.Decision { return acperm.Allowed() },
-		Run: func(ctx context.Context, in json.RawMessage, _ *actool.ToolContext) (actool.Result, error) {
-			return run(ctx, in)
-		},
-	})
-}
-
-func writeTool(name, desc string, schema map[string]any, run func(context.Context, json.RawMessage) (actool.Result, error)) actool.CoreTool {
-	return actool.Build(actool.Spec{
-		Name: name, Description: desc, Schema: schema,
-		Permissions: func(context.Context, json.RawMessage, acperm.Context) acperm.Decision { return acperm.Allowed() },
-		Run: func(ctx context.Context, in json.RawMessage, _ *actool.ToolContext) (actool.Result, error) {
-			return run(ctx, in)
-		},
-	})
+	return toolbuild.Integer(desc)
 }
 
 // readExpTool / writeExpTool build a domain tool whose handler dereferences the
@@ -309,11 +283,11 @@ func writeTool(name, desc string, schema map[string]any, run func(context.Contex
 // and tool handlers run on the harness's own goroutine, so the panic is out of
 // reach of every recover() in the server and kills the whole process.
 func (t *ToolSet) readExpTool(name, desc string, schema map[string]any, run func(context.Context, json.RawMessage) (actool.Result, error)) actool.CoreTool {
-	return readTool(name, desc, schema, t.needExploration(name, run))
+	return toolbuild.Read(name, desc, schema, t.needExploration(name, run))
 }
 
 func (t *ToolSet) writeExpTool(name, desc string, schema map[string]any, run func(context.Context, json.RawMessage) (actool.Result, error)) actool.CoreTool {
-	return writeTool(name, desc, schema, t.needExploration(name, run))
+	return toolbuild.Write(name, desc, schema, t.needExploration(name, run))
 }
 
 // needExploration wraps a handler so it only runs with an exploration store.
@@ -1204,7 +1178,7 @@ func (t *ToolSet) proveGoal() actool.CoreTool {
 }
 
 func (t *ToolSet) goalMet() actool.CoreTool {
-	return writeTool("goal_met", "【立即结束整个任务】——仅当你确认任务的【全部目标都已真正达成、整体收官】时才调（注意是任务【整体】完成；仅仅达成了其中某一个目标/某一个 flag/某一个漏洞【不算】——那种情况用 prove_goal 标记该目标即可）。⚠️它不是用来“结束本轮规划”的：本轮没有新意图要派、或在等 worker 产出，都【直接结束本轮即可，不要调本工具】（0 个意图是完全正常的）。正常判定优先用 prove_goal 逐个证明目标；goal_met 只是绕过逐个证明、直接从全局收官的手段。",
+	return toolbuild.Write("goal_met", "【立即结束整个任务】——仅当你确认任务的【全部目标都已真正达成、整体收官】时才调（注意是任务【整体】完成；仅仅达成了其中某一个目标/某一个 flag/某一个漏洞【不算】——那种情况用 prove_goal 标记该目标即可）。⚠️它不是用来“结束本轮规划”的：本轮没有新意图要派、或在等 worker 产出，都【直接结束本轮即可，不要调本工具】（0 个意图是完全正常的）。正常判定优先用 prove_goal 逐个证明目标；goal_met 只是绕过逐个证明、直接从全局收官的手段。",
 		obj(map[string]any{"reason": str("达成理由（必须是目标真正达成的证据，不能是“本轮无新方向”这类结束本轮的理由）")}, "reason"),
 		func(_ context.Context, in json.RawMessage) (actool.Result, error) {
 			var a struct{ Reason string }
@@ -1218,13 +1192,13 @@ func (t *ToolSet) goalMet() actool.CoreTool {
 // --- worker write tools ---
 
 func (t *ToolSet) addFinding() actool.CoreTool {
-	return writeTool("report_finding", "记录确认的漏洞，用 evidence 提供命令输出、日志等可验证证据。任务上下文传当前 intent_id。返回的 finding_id 是独立漏洞记录 ID，finding_node_id 是探索节点 ID（第一行保留该节点编号）。", obj(map[string]any{
+	return toolbuild.Write("report_finding", "记录确认的漏洞，用 evidence 提供命令输出、日志等可验证证据。任务上下文传当前 intent_id。返回的 finding_id 是独立漏洞记录 ID，finding_node_id 是探索节点 ID（第一行保留该节点编号）。", obj(map[string]any{
 		"vulnclass": str("漏洞类别"), "name": str("漏洞名称"), "severity": str("critical|high|medium|low"), "summary": str("发现摘要"),
 		"intent_id": idp("当前任务的意图 id"), "asset_ids": map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "description": "受影响资产 id"},
 		"evidence":         str("证据/PoC 文本"),
 		"evidence_hint_id": idp("可选：本任务中对应此漏洞的提示节点 ID，自动携带其结构化 traffic_refs；不能引用继承提示或其他漏洞的提示"),
 		"traffic_refs": map[string]any{"type": "array", "description": "可选；HTTP/HTTPS 漏洞先检索并逐条核实请求/响应确实支持漏洞结论，再按复现顺序填写真实 ID。TCP 等非 HTTP 漏洞、未采集或找不到确切记录时省略或传 []，不阻止上报；可在 evidence 说明原因并提供其他可验证证据。不要猜测 ID、按域名/时间推定关联或仅为补包重复探测。用途 baseline 正常对照 / proof 漏洞证明 / verification 补充验证 / supporting 辅助证据。",
-			"items": obj(map[string]any{"traffic_id": str("traffic_search 返回的真实流量 ID"), "role": map[string]any{"type": "string", "enum": []string{"baseline", "proof", "verification", "supporting"}}, "note": str("该流量如何支持漏洞结论")}, "traffic_id")},
+			"items": obj(map[string]any{"traffic_id": str("traffic_search 返回的真实流量 ID"), "role": toolbuild.EnumString("", "baseline", "proof", "verification", "supporting"), "note": str("该流量如何支持漏洞结论")}, "traffic_id")},
 	}, "vulnclass", "severity", "summary"), func(ctx context.Context, in json.RawMessage) (actool.Result, error) {
 		var a struct {
 			VulnClass, Name, Severity, Summary, Evidence string
@@ -1473,7 +1447,7 @@ func (t *ToolSet) addOneGoal(it goalItem) (int64, error) {
 // setGoals 给【本任务】新增探索目标(goal 节点)。既是目标拆解器的提交工具,也是主
 // agent 运行时补目标的工具——同一个受管工具,可在 web 端改描述/schema、按 agent 绑定。
 func (t *ToolSet) setGoals() actool.CoreTool {
-	return writeTool("set_goals",
+	return toolbuild.Write("set_goals",
 		"给【本任务】新增探索目标(goal)。目标=最终可交付/可核验的结果,不是攻击步骤或侦察动作。\n"+
 			"★优先批量:多个目标放进 goals 数组一次提交,返回 ids 与之等长同序(失败项 id=0,详情见 errors)。单条则省略 goals 直接给顶层 text。\n"+
 			"vulnclass 可选:对应漏洞类(如 SQLi/IDOR),业务逻辑类目标留空。目标是否达成由系统判定标记 met,本工具只负责新增。",
@@ -1566,7 +1540,7 @@ func (t *ToolSet) addOneConstraint(it constraintItem) (int64, error) {
 // 拆解器 round-0 抽约束的提交工具,也是主 agent 运行时补约束的工具——同一受管工具,可在 web
 // 端改描述/schema、按 agent 绑定。约束会被注入 planner/worker 的系统提示以约束探索边界。
 func (t *ToolSet) setConstraints() actool.CoreTool {
-	return writeTool("set_constraints",
+	return toolbuild.Write("set_constraints",
 		"给【本任务】新增操作约束,用来框定探索边界:type=allow(允许做的操作)或 deny(禁止做的操作)。\n"+
 			"约束=对『可以/不可以做哪些操作』的规定(如『仅测当前端口,不扫其他端口』『禁止对生产库做写操作』『只允许被动侦察』),不是目标、也不是攻击步骤。\n"+
 			"★优先批量:多条放进 constraints 数组一次提交,返回 ids 与之等长同序(失败项 id=0,详情见 errors)。单条则省略 constraints 直接给顶层 text/type。\n"+

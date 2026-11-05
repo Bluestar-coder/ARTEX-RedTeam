@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"github.com/Bluestar-coder/ARTEX-RedTeam/db"
-	"github.com/Bluestar-coder/ARTEX-RedTeam/norma/permission"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/internal/toolbuild"
 	actool "github.com/Bluestar-coder/ARTEX-RedTeam/norma/tool"
 )
 
@@ -284,12 +284,11 @@ func (s *Server) buildCustomTool(t *db.Tool) actool.CoreTool {
 			return actool.Errorf("未知自定义工具类型: " + kind), nil
 		}
 	}
-	return actool.Build(actool.Spec{
+	return toolbuild.Build(toolbuild.Spec{
 		Name: key, Description: t.Description, Schema: schema,
-		Permissions: func(context.Context, json.RawMessage, permission.Context) permission.Decision {
-			return permission.Allowed()
-		},
-		Run: run,
+		Access:     toolbuild.AccessReadWrite,
+		Permission: toolbuild.PermissionAllow,
+		Run:        run,
 	})
 }
 
@@ -321,7 +320,7 @@ func ensureSchema(raw json.RawMessage) map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"args": map[string]any{"type": "string", "description": "命令/参数(自由文本)"},
+			"args": toolbuild.String("命令/参数(自由文本)"),
 		},
 	}
 }

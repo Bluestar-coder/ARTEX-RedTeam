@@ -11,7 +11,7 @@ import (
 
 	"github.com/Bluestar-coder/ARTEX-RedTeam/agent"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/db"
-	"github.com/Bluestar-coder/ARTEX-RedTeam/norma/permission"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/internal/toolbuild"
 	actool "github.com/Bluestar-coder/ARTEX-RedTeam/norma/tool"
 )
 
@@ -84,7 +84,7 @@ func (s *Server) orchestrationTools() []actool.CoreTool {
 // --- schema helpers ---
 
 func strParam(desc string) map[string]any {
-	return map[string]any{"type": "string", "description": desc}
+	return toolbuild.String(desc)
 }
 
 // parseProfileID reads an LLM profile id from a tool arg that may arrive as a JSON
@@ -106,41 +106,7 @@ func parseProfileID(raw json.RawMessage) int64 {
 }
 
 func objSchema(props map[string]any, required ...string) map[string]any {
-	m := map[string]any{"type": "object", "properties": props}
-	if len(required) > 0 {
-		req := make([]any, len(required))
-		for i, r := range required {
-			req[i] = r
-		}
-		m["required"] = req
-	}
-	return m
-}
-
-func roTool(name, desc string, schema map[string]any, run func(context.Context, json.RawMessage) (actool.Result, error)) actool.CoreTool {
-	return actool.Build(actool.Spec{
-		Name: name, Description: desc, Schema: schema,
-		ReadOnly:   func(json.RawMessage) bool { return true },
-		Concurrent: func(json.RawMessage) bool { return true },
-		Permissions: func(context.Context, json.RawMessage, permission.Context) permission.Decision {
-			return permission.Allowed()
-		},
-		Run: func(ctx context.Context, in json.RawMessage, _ *actool.ToolContext) (actool.Result, error) {
-			return run(ctx, in)
-		},
-	})
-}
-
-func wrTool(name, desc string, schema map[string]any, run func(context.Context, json.RawMessage) (actool.Result, error)) actool.CoreTool {
-	return actool.Build(actool.Spec{
-		Name: name, Description: desc, Schema: schema,
-		Permissions: func(context.Context, json.RawMessage, permission.Context) permission.Decision {
-			return permission.Allowed()
-		},
-		Run: func(ctx context.Context, in json.RawMessage, _ *actool.ToolContext) (actool.Result, error) {
-			return run(ctx, in)
-		},
-	})
+	return toolbuild.Object(props, required...)
 }
 
 // delegateToTask resolves the `task_id` in the input, builds a ToolSet bound to
@@ -175,7 +141,7 @@ func (s *Server) delegateToTask(ctx context.Context, in json.RawMessage, pick fu
 // --- tools ---
 
 func (s *Server) toolListTasks() actool.CoreTool {
-	return roTool("list_tasks",
+	return toolbuild.Read("list_tasks",
 		"列出所有任务(id/描述/目标/状态/运行时长/父任务/LLM 配置)，编排 agent 用它掌握全局、看哪些任务卡太久、各自用哪个 LLM。运行时长：运行中=创建→现在，终态=创建→最后活动(秒)。llm_profile：任务 planner/worker 用的配置名，(激活配置)=跟随全局激活。",
 		objSchema(map[string]any{}),
 		func(context.Context, json.RawMessage) (actool.Result, error) {
@@ -221,7 +187,7 @@ func (s *Server) toolListTasks() actool.CoreTool {
 // toolListLLMProfiles lists the available LLM profiles (name/model/active) so an
 // orchestration agent can pick one for spawn_task's llm_profile. Never leaks keys.
 func (s *Server) toolListLLMProfiles() actool.CoreTool {
-	return roTool("list_llm_profiles",
+	return toolbuild.Read("list_llm_profiles",
 		"列出可用的 LLM 配置(profile)：id、名称、模型、格式、是否为当前激活配置。用 id 给 spawn_task 的 llm_profile_id 参数指定子任务专属 LLM（如侦察用便宜模型、利用用强模型）。不含 API Key。",
 		objSchema(map[string]any{}),
 		func(context.Context, json.RawMessage) (actool.Result, error) {
@@ -240,13 +206,13 @@ func (s *Server) toolListLLMProfiles() actool.CoreTool {
 }
 
 func (s *Server) toolSpawnTask() actool.CoreTool {
-	return wrTool("spawn_task",
+	return toolbuild.Write("spawn_task",
 		"新建一个子任务并启动探索引擎，返回 task_id。用于把一件事(如一道题/一个目标)派成独立任务。parent_ref 可选：填当前编排关联的父任务 id 做父子关联。",
 		objSchema(map[string]any{
 			"description":            strParam("任务描述(简短标题)"),
 			"goal":                   strParam("任务目标(要达成什么)"),
 			"parent_ref":             strParam("可选：父任务 id(做父子关联)"),
-			"source_task_ids":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": fmt.Sprintf("可选：只读继承的来源任务 id 列表(最多 %d 个)。子任务可只读引用这些任务已探明的资产/结论作为起点；与 parent_ref 的纯父子指针不同，这是内容继承。", db.MaxTaskSourceCount)},
+			"source_task_ids":        toolbuild.Array(toolbuild.String(""), fmt.Sprintf("可选：只读继承的来源任务 id 列表(最多 %d 个)。子任务可只读引用这些任务已探明的资产/结论作为起点；与 parent_ref 的纯父子指针不同，这是内容继承。", db.MaxTaskSourceCount)),
 			"llm_profile_id":         map[string]any{"type": "integer", "description": "可选：指定本子任务 planner/worker 用的 LLM 配置 id(见 list_llm_profiles)；留空则继承父任务、再回退全局激活配置"},
 			"timeout_seconds":        map[string]any{"type": "integer", "description": "可选：任务级超时(秒)。到点后触发优雅收尾并进入 timeout 终态；留空或 0 = 不限时"},
 			"plan_heartbeat_seconds": map[string]any{"type": "integer", "description": "可选：planner 心跳触发间隔(秒)。距上轮规划结束/任务开始满该值且期间无触发 → 触发一轮规划(兜底死锁 + 唤醒去监督飞行中的 worker)。留空或 0 = 默认 600(10min)；"},
@@ -330,7 +296,7 @@ func (s *Server) toolSpawnTask() actool.CoreTool {
 }
 
 func (s *Server) toolPauseTask() actool.CoreTool {
-	return wrTool("pause_task", "暂停指定任务(停止其 planner/worker 循环)。",
+	return toolbuild.Write("pause_task", "暂停指定任务(停止其 planner/worker 循环)。",
 		objSchema(map[string]any{"task_id": strParam("要暂停的任务 id")}, "task_id"),
 		func(_ context.Context, in json.RawMessage) (actool.Result, error) {
 			var a struct {
@@ -349,7 +315,7 @@ func (s *Server) toolPauseTask() actool.CoreTool {
 }
 
 func (s *Server) toolGetTaskGraph() actool.CoreTool {
-	return roTool("get_task_graph", "读指定任务的探索图总览(同 graph_overview：资产计数/frontier/发现/覆盖等)，用 task_id 指定任务。",
+	return toolbuild.Read("get_task_graph", "读指定任务的探索图总览(同 graph_overview：资产计数/frontier/发现/覆盖等)，用 task_id 指定任务。",
 		objSchema(map[string]any{"task_id": strParam("任务 id")}, "task_id"),
 		func(ctx context.Context, in json.RawMessage) (actool.Result, error) {
 			return s.delegateToTask(ctx, in, (*agent.ToolSet).GraphOverviewTool)
@@ -357,7 +323,7 @@ func (s *Server) toolGetTaskGraph() actool.CoreTool {
 }
 
 func (s *Server) toolListTaskFindings() actool.CoreTool {
-	return roTool("list_task_findings", "读指定任务的确认漏洞(含 flag/PoC；每条带 id/task_id/intent_id/vulnclass/severity/摘要/状态)，用 task_id 指定任务。",
+	return toolbuild.Read("list_task_findings", "读指定任务的确认漏洞(含 flag/PoC；每条带 id/task_id/intent_id/vulnclass/severity/摘要/状态)，用 task_id 指定任务。",
 		objSchema(map[string]any{"task_id": strParam("任务 id")}, "task_id"),
 		func(ctx context.Context, in json.RawMessage) (actool.Result, error) {
 			return s.delegateToTask(ctx, in, (*agent.ToolSet).ListFindingsTool)
@@ -365,7 +331,7 @@ func (s *Server) toolListTaskFindings() actool.CoreTool {
 }
 
 func (s *Server) toolAddHint() actool.CoreTool {
-	return wrTool("add_task_hint", "给指定任务注入战略提示(该任务的 planner 下轮生成意图时会读到)。\n"+
+	return toolbuild.Write("add_task_hint", "给指定任务注入战略提示(该任务的 planner 下轮生成意图时会读到)。\n"+
 		"★优先批量：多条提示放进 hints 数组一次提交（返回 ids 数组，与 hints 等长同序，失败项 id=0）；单条则省略 hints 直接给顶层 text。",
 		objSchema(map[string]any{
 			"task_id":      strParam("任务 id"),
@@ -380,7 +346,7 @@ func (s *Server) toolAddHint() actool.CoreTool {
 }
 
 func (s *Server) toolGetWorkerTrace() actool.CoreTool {
-	return roTool("get_task_worker_trace",
+	return toolbuild.Read("get_task_worker_trace",
 		"看指定任务里某个 work(意图)的执行过程：get_task_worker_trace(task_id, intent_id) 看步骤摘要；再带 step_ids=[...] 取那几步完整内容(一次最多 5 个,多传只返回前 5 个)。",
 		objSchema(map[string]any{
 			"task_id":   strParam("任务 id"),
@@ -393,7 +359,7 @@ func (s *Server) toolGetWorkerTrace() actool.CoreTool {
 }
 
 func (s *Server) toolListWorkerTraces() actool.CoreTool {
-	return roTool("list_task_worker_traces", "列出指定任务里跑过哪些 work(意图) + 各自步数，用于发现哪些 work 值得翻看(再用 get_task_worker_trace)。",
+	return toolbuild.Read("list_task_worker_traces", "列出指定任务里跑过哪些 work(意图) + 各自步数，用于发现哪些 work 值得翻看(再用 get_task_worker_trace)。",
 		objSchema(map[string]any{"task_id": strParam("任务 id")}, "task_id"),
 		func(ctx context.Context, in json.RawMessage) (actool.Result, error) {
 			return s.delegateToTask(ctx, in, (*agent.ToolSet).ListWorkerTracesTool)
@@ -401,7 +367,7 @@ func (s *Server) toolListWorkerTraces() actool.CoreTool {
 }
 
 func (s *Server) toolSearchWorkerTraces() actool.CoreTool {
-	return roTool("search_task_worker_traces", "在指定任务里按关键字搜索所有 work 的执行过程(返回命中步骤摘要 + intent_id)。",
+	return toolbuild.Read("search_task_worker_traces", "在指定任务里按关键字搜索所有 work 的执行过程(返回命中步骤摘要 + intent_id)。",
 		objSchema(map[string]any{"task_id": strParam("任务 id"), "q": strParam("搜索关键字")}, "task_id", "q"),
 		func(ctx context.Context, in json.RawMessage) (actool.Result, error) {
 			return s.delegateToTask(ctx, in, (*agent.ToolSet).SearchWorkerTracesTool)
@@ -409,7 +375,7 @@ func (s *Server) toolSearchWorkerTraces() actool.CoreTool {
 }
 
 func (s *Server) toolGetTaskNodeDetail() actool.CoreTool {
-	return roTool("get_task_node_detail",
+	return toolbuild.Read("get_task_node_detail",
 		"读指定任务里某个探索图节点的完整内容(发现/事实/意图/目标：摘要 + 详情/证据/PoC)。id 为探索节点 id(如 report_finding 返回、或 list_task_findings 里的 id)。写漏洞报告前用它取该漏洞的完整证据。",
 		objSchema(map[string]any{
 			"task_id": strParam("任务 id"),
@@ -425,7 +391,7 @@ func (s *Server) toolGetTaskNodeDetail() actool.CoreTool {
 // finding node id). The write (SetFindingReportByNodeID) is keyed by node_id and
 // task-agnostic, so this host tool needs no task_id / exploration store.
 func (s *Server) toolUpdateFindingReport() actool.CoreTool {
-	return wrTool("update_finding_report",
+	return toolbuild.Write("update_finding_report",
 		"为已登记的漏洞写入/更新【详细报告】(Markdown 全文,整段覆盖旧内容)。finding_id 传 report_finding 返回的那个 id(\"finding recorded: <id>\" 里的数字)。报告建议包含:漏洞概述、影响与危害、复现步骤、证据/PoC、修复建议。",
 		objSchema(map[string]any{
 			"finding_id":       map[string]any{"type": "integer", "description": "目标漏洞 id(report_finding 返回的 id)"},

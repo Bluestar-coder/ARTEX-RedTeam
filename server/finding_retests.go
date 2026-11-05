@@ -15,6 +15,7 @@ import (
 	"github.com/Bluestar-coder/ARTEX-RedTeam/agent"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/db"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/intercept"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/internal/toolbuild"
 	actool "github.com/Bluestar-coder/ARTEX-RedTeam/norma/tool"
 )
 
@@ -143,7 +144,7 @@ func (s *Server) startFindingRetest(w http.ResponseWriter, r *http.Request) {
 // arguments cannot redirect a result into a different finding or conversation.
 func (s *Server) findingRetestTools() []actool.CoreTool {
 	return []actool.CoreTool{
-		roTool("get_finding_retest_context", "读取当前复测会话关联的漏洞证据快照、复测状态、补充说明与当前任务约束。无参数，只能读取本会话。",
+		toolbuild.Read("get_finding_retest_context", "读取当前复测会话关联的漏洞证据快照、复测状态、补充说明与当前任务约束。无参数，只能读取本会话。",
 			objSchema(map[string]any{}), func(ctx context.Context, _ json.RawMessage) (actool.Result, error) {
 				r, err := s.m.pg.FindingRetestForConversation(ctx, intercept.ConvIDFromContext(ctx))
 				if err != nil {
@@ -167,9 +168,9 @@ func (s *Server) findingRetestTools() []actool.CoreTool {
 				}
 				return jsonResult(map[string]any{"retest": r, "current_constraints": constraints})
 			}),
-		wrTool("record_finding_retest_result", "为当前复测会话保存唯一结论；原漏洞证据与报告保持不变。会话成功结束且结论为 fixed 时，系统自动将漏洞状态改为已修复；其他结论保留原状态。必须提供本次实际检查的证据，无法确认时写明阻塞原因。",
+		toolbuild.Write("record_finding_retest_result", "为当前复测会话保存唯一结论；原漏洞证据与报告保持不变。会话成功结束且结论为 fixed 时，系统自动将漏洞状态改为已修复；其他结论保留原状态。必须提供本次实际检查的证据，无法确认时写明阻塞原因。",
 			objSchema(map[string]any{
-				"verdict":  map[string]any{"type": "string", "enum": []string{"reproduced", "fixed", "inconclusive"}},
+				"verdict":  toolbuild.EnumString("", "reproduced", "fixed", "inconclusive"),
 				"summary":  strParam("本次复测结论摘要"),
 				"evidence": strParam("Markdown：本次实际步骤、观察、对照、结论依据；无法确认则列出已检查内容和阻塞原因"),
 			}, "verdict", "summary", "evidence"), func(ctx context.Context, in json.RawMessage) (actool.Result, error) {
