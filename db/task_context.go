@@ -340,63 +340,36 @@ func (d *DB) TaskSourceIDs(taskID int64) ([]int64, error) {
 // TaskCompanyIDs returns the companies whose asset scopes are available to the
 // task. The task_scope rows remain the single source of truth.
 func (d *DB) TaskCompanyIDs(taskID int64) ([]int64, error) {
-	rows, err := d.Query(`
+	return queryRows(d, `
 SELECT company_id FROM task_scope
 WHERE task_id=$1 AND kind='company' AND company_id IS NOT NULL
-ORDER BY id`, taskID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []int64
-	for rows.Next() {
+ORDER BY id`, []any{taskID}, func(r *sql.Rows) (int64, error) {
 		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		out = append(out, id)
-	}
-	return out, rows.Err()
+		err := r.Scan(&id)
+		return id, err
+	})
 }
 
 func (d *DB) TaskSources(taskID int64) ([]TaskSource, error) {
-	rows, err := d.Query(`
+	return queryRows(d, `
 SELECT t.id, t.exploration_id, t.description, t.goal, t.status
 FROM task_relations r
 JOIN tasks t ON t.id=r.source_task_id AND t.deleted_at IS NULL
 WHERE r.task_id=$1
-ORDER BY r.created_at, r.source_task_id`, taskID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []TaskSource
-	for rows.Next() {
+ORDER BY r.created_at, r.source_task_id`, []any{taskID}, func(r *sql.Rows) (TaskSource, error) {
 		var source TaskSource
-		if err := rows.Scan(&source.TaskID, &source.ExplorationID, &source.Description, &source.Goal, &source.Status); err != nil {
-			return nil, err
-		}
-		out = append(out, source)
-	}
-	return out, rows.Err()
+		err := r.Scan(&source.TaskID, &source.ExplorationID, &source.Description, &source.Goal, &source.Status)
+		return source, err
+	})
 }
 
 func (d *DB) TaskLLMProfiles(taskID int64) ([]TaskLLMProfile, error) {
-	rows, err := d.Query(`SELECT profile_id, position, status, COALESCE(last_error,''), exhausted_at
-FROM task_llm_profiles WHERE task_id=$1 ORDER BY position`, taskID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []TaskLLMProfile
-	for rows.Next() {
+	return queryRows(d, `SELECT profile_id, position, status, COALESCE(last_error,''), exhausted_at
+FROM task_llm_profiles WHERE task_id=$1 ORDER BY position`, []any{taskID}, func(r *sql.Rows) (TaskLLMProfile, error) {
 		var entry TaskLLMProfile
-		if err := rows.Scan(&entry.ProfileID, &entry.Position, &entry.Status, &entry.LastError, &entry.ExhaustedAt); err != nil {
-			return nil, err
-		}
-		out = append(out, entry)
-	}
-	return out, rows.Err()
+		err := r.Scan(&entry.ProfileID, &entry.Position, &entry.Status, &entry.LastError, &entry.ExhaustedAt)
+		return entry, err
+	})
 }
 
 // ReplaceTaskLLMProfiles atomically replaces and resets the explicit task chain.
