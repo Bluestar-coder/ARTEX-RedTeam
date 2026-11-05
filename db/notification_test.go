@@ -148,7 +148,7 @@ func TestRecordNotificationEventTxUnwindsOnFailure(t *testing.T) {
 	}
 	// 确认 DDL 已随回滚撤销，不给后续用例留雷。
 	var exists bool
-	if err := d.QueryRow(`SELECT EXISTS(SELECT 1 FROM pg_constraint WHERE conname='notify_test_never')`).Scan(&exists); err != nil {
+	if err := d.QueryRow(`SELECT EXISTS(SELECT 1 FROM pg_constraint WHERE conname='notify_test_never' AND connamespace = current_schema()::regnamespace)`).Scan(&exists); err != nil {
 		t.Fatal(err)
 	}
 	if exists {

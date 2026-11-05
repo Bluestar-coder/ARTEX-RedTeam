@@ -205,7 +205,8 @@ DO $$
 BEGIN
     IF EXISTS (
         SELECT 1 FROM pg_constraint
-        WHERE conrelid='exploration_nodes'::regclass
+        WHERE connamespace = current_schema()::regnamespace
+          AND conrelid='exploration_nodes'::regclass
           AND conname='ck_node_kind'
           AND pg_get_constraintdef(oid) NOT LIKE '%digest%'
     ) THEN
@@ -220,7 +221,8 @@ DO $$
 BEGIN
     IF EXISTS (
         SELECT 1 FROM pg_constraint
-        WHERE conrelid='exploration_nodes'::regclass
+        WHERE connamespace = current_schema()::regnamespace
+          AND conrelid='exploration_nodes'::regclass
           AND conname='ck_node_state'
           AND (pg_get_constraintdef(oid) NOT LIKE '%paused%'
                OR pg_get_constraintdef(oid) NOT LIKE '%superseded%'
@@ -263,7 +265,8 @@ DO $$
 DECLARE cname text;
 BEGIN
     SELECT conname INTO cname FROM pg_constraint
-     WHERE conrelid='exploration_edges'::regclass AND contype='c'
+     WHERE connamespace = current_schema()::regnamespace
+       AND conrelid='exploration_edges'::regclass AND contype='c'
        AND pg_get_constraintdef(oid) LIKE '%rel%'
        AND pg_get_constraintdef(oid) NOT LIKE '%covers%';
     IF cname IS NOT NULL THEN
@@ -463,7 +466,8 @@ DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns
-        WHERE table_name = 'llm_profiles' AND column_name = 'thinking_type'
+        WHERE table_schema = current_schema()
+          AND table_name = 'llm_profiles' AND column_name = 'thinking_type'
     ) THEN
         ALTER TABLE llm_profiles ADD COLUMN thinking_type TEXT NOT NULL DEFAULT '';
         UPDATE llm_profiles SET thinking_type = 'enabled'
