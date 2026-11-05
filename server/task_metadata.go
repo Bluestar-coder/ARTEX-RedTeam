@@ -62,5 +62,5 @@ func (s *Server) updateTaskMetadata(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "task not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, taskDTO(task, s.resolvedTaskStatus(task)))
+	writeOK(w, taskDTO(task, s.resolvedTaskStatus(task)))
 }

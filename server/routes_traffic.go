@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -34,7 +33,7 @@ func (s *Server) registerTrafficRoutes(mux *http.ServeMux) {
 func (s *Server) getTraffic(w http.ResponseWriter, r *http.Request) {
 	tr := s.m.Traffic()
 	if tr == nil {
-		writeJSON(w, 200, map[string]any{"enabled": false, "exchanges": []any{}})
+		writeOK(w, map[string]any{"enabled": false, "exchanges": []any{}})
 		return
 	}
 	q := r.URL.Query()
@@ -53,7 +52,7 @@ func (s *Server) getTraffic(w http.ResponseWriter, r *http.Request) {
 		Order:   q.Get("order"),
 	}, page, size)
 	count, _ := tr.Count() // global total, for the stat card
-	writeJSON(w, 200, map[string]any{
+	writeOK(w, map[string]any{
 		"enabled":   s.m.TrafficEnabled(), // reflect the capture toggle
 		"proxy":     s.m.ProxyAddr(),
 		"count":     count,   // total recorded (unfiltered)
@@ -69,7 +68,7 @@ func (s *Server) getTraffic(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getTrafficHosts(w http.ResponseWriter, r *http.Request) {
 	tr := s.m.Traffic()
 	if tr == nil {
-		writeJSON(w, 200, map[string]any{"hosts": []any{}})
+		writeOK(w, map[string]any{"hosts": []any{}})
 		return
 	}
 	hosts, err := tr.Hosts()
@@ -77,7 +76,7 @@ func (s *Server) getTrafficHosts(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"hosts": hosts})
+	writeOK(w, map[string]any{"hosts": hosts})
 }
 
 // deleteTraffic removes recorded traffic for every host containing the query's
@@ -101,7 +100,7 @@ func (s *Server) deleteTraffic(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"deleted": n})
+	writeOK(w, map[string]any{"deleted": n})
 }
 
 // deleteTrafficHosts removes traffic for a set of EXACT hosts (JSON body
@@ -117,8 +116,7 @@ func (s *Server) deleteTrafficHosts(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Hosts []string `json:"hosts"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, 400, "invalid body")
+	if !decodeBodyMsg(w, r, &req, 400, "invalid body") {
 		return
 	}
 	hosts := make([]string, 0, len(req.Hosts))
@@ -136,7 +134,7 @@ func (s *Server) deleteTrafficHosts(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"deleted": n})
+	writeOK(w, map[string]any{"deleted": n})
 }
 
 // deleteAllTraffic purges every recorded exchange, then compacts the index so
@@ -155,7 +153,7 @@ func (s *Server) deleteAllTraffic(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"deleted": n, "reclaimed": reclaimed})
+	writeOK(w, map[string]any{"deleted": n, "reclaimed": reclaimed})
 }
 
 // getTrafficExchange returns the full raw request/response of one exchange,
@@ -176,7 +174,7 @@ func (s *Server) getTrafficExchange(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"req": req, "resp": resp})
+	writeOK(w, map[string]any{"req": req, "resp": resp})
 }
 
 // getTrafficBlob streams one oversized body by its sha256. Bodies past the inline

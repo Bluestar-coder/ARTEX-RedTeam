@@ -85,7 +85,7 @@ func (s *Server) listCompanies(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, companies)
+	writeOK(w, companies)
 }
 
 // =====================================================================
@@ -171,7 +171,7 @@ func (s *Server) getCompany(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"company": c, "scope": scope})
+	writeOK(w, map[string]any{"company": c, "scope": scope})
 }
 
 // =====================================================================
@@ -237,7 +237,7 @@ func (s *Server) addCompanyScope(w http.ResponseWriter, r *http.Request) {
 	if warning, err := cs.MalformedIPAssetWarning(); err == nil && warning != "" {
 		out["warnings"] = []string{warning}
 	}
-	writeJSON(w, 200, out)
+	writeOK(w, out)
 }
 
 // =====================================================================
@@ -287,7 +287,7 @@ func (s *Server) deleteCompany(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"deleted": 1, "assets_deleted": assetsDeleted})
+	writeOK(w, map[string]any{"deleted": 1, "assets_deleted": assetsDeleted})
 }
 
 // =====================================================================
@@ -304,7 +304,7 @@ func (s *Server) reattribute(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"ok": true})
+	writeOK(w, map[string]any{"ok": true})
 }
 
 // =====================================================================
@@ -382,7 +382,7 @@ func (s *Server) listAssets(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{
+	writeOK(w, map[string]any{
 		"count":  len(assets),
 		"total":  total,
 		"assets": assets,
@@ -410,7 +410,7 @@ func (s *Server) assetCounts(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, counts)
+	writeOK(w, counts)
 }
 
 // =====================================================================
@@ -439,7 +439,7 @@ func (s *Server) deleteAssets(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"deleted": deleted})
+	writeOK(w, map[string]any{"deleted": deleted})
 }
 
 // =====================================================================
@@ -546,5 +546,5 @@ func (s *Server) insertAssets(w http.ResponseWriter, r *http.Request) {
 		}
 		results = append(results, result{Index: i, ID: id, Type: a.Type})
 	}
-	writeJSON(w, 200, map[string]any{"results": results, "errors": errs})
+	writeOK(w, map[string]any{"results": results, "errors": errs})
 }

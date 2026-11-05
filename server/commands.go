@@ -20,7 +20,7 @@ func (s *Server) pgListCommands(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"commands": records, "total": total})
+	writeOK(w, map[string]any{"commands": records, "total": total})
 }
 
 // pgToolStats returns per-tool call counts for the tool-execution history, under
@@ -30,7 +30,7 @@ func (s *Server) pgToolStats(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	pg := s.m.PG()
 	if pg == nil {
-		writeJSON(w, 200, map[string]any{"stats": []db.ToolStat{}})
+		writeOK(w, map[string]any{"stats": []db.ToolStat{}})
 		return
 	}
 	stats, err := pg.ToolStats(commandTaskFilter(q.Get("task")), q.Get("q"))
@@ -38,7 +38,7 @@ func (s *Server) pgToolStats(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"stats": stats})
+	writeOK(w, map[string]any{"stats": stats})
 }
 
 // commandTaskFilter parses the ?task= exploration id. Absent or unparsable → nil
@@ -68,7 +68,7 @@ func (s *Server) pgListLLMRecords(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"records": records, "total": total})
+	writeOK(w, map[string]any{"records": records, "total": total})
 }
 
 // pgTokenByModel returns a task's LLM token usage grouped by model, from the
@@ -83,7 +83,7 @@ func (s *Server) pgTokenByModel(w http.ResponseWriter, r *http.Request) {
 	}
 	pg := s.m.PG()
 	if pg == nil {
-		writeJSON(w, 200, map[string]any{"models": []db.ModelTokenStat{}})
+		writeOK(w, map[string]any{"models": []db.ModelTokenStat{}})
 		return
 	}
 	models, err := pg.TokenByModel(id)
@@ -91,7 +91,7 @@ func (s *Server) pgTokenByModel(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"models": models})
+	writeOK(w, map[string]any{"models": models})
 }
 
 // pgUsageStats returns global llm_usage aggregates for the dashboard's "new" token
@@ -101,7 +101,7 @@ func (s *Server) pgTokenByModel(w http.ResponseWriter, r *http.Request) {
 func (s *Server) pgUsageStats(w http.ResponseWriter, r *http.Request) {
 	pg := s.m.PG()
 	if pg == nil {
-		writeJSON(w, 200, map[string]any{"by_profile": []db.ProfileUsage{}, "daily": []db.ProfileDayUsage{}})
+		writeOK(w, map[string]any{"by_profile": []db.ProfileUsage{}, "daily": []db.ProfileDayUsage{}})
 		return
 	}
 	days := atoiDefault(r.URL.Query().Get("days"), 365)
@@ -115,7 +115,7 @@ func (s *Server) pgUsageStats(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"by_profile": byProfile, "daily": daily})
+	writeOK(w, map[string]any{"by_profile": byProfile, "daily": daily})
 }
 
 // pgLLMTasks returns distinct recorded tasks with counts, for the page's task
@@ -126,7 +126,7 @@ func (s *Server) pgLLMTasks(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"tasks": tasks})
+	writeOK(w, map[string]any{"tasks": tasks})
 }
 
 // pgDeleteLLMRecords removes all LLM records for one exact task_id (the same
@@ -142,7 +142,7 @@ func (s *Server) pgDeleteLLMRecords(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"deleted": n})
+	writeOK(w, map[string]any{"deleted": n})
 }
 
 // pgGetLLMRecord returns a single LLM record with full request/response bodies.
@@ -157,5 +157,5 @@ func (s *Server) pgGetLLMRecord(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "not found")
 		return
 	}
-	writeJSON(w, 200, rec)
+	writeOK(w, rec)
 }

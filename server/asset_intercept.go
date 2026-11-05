@@ -27,7 +27,7 @@ func (s *Server) assetInterceptListRules(w http.ResponseWriter, r *http.Request)
 	if rules == nil {
 		rules = []db.AssetInterceptRule{}
 	}
-	writeJSON(w, 200, map[string]any{"rules": rules})
+	writeOK(w, map[string]any{"rules": rules})
 }
 
 func (s *Server) assetInterceptCreateRule(w http.ResponseWriter, r *http.Request) {
@@ -49,7 +49,7 @@ func (s *Server) assetInterceptCreateRule(w http.ResponseWriter, r *http.Request
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, rule)
+	writeOK(w, rule)
 }
 
 func (s *Server) assetInterceptUpdateRule(w http.ResponseWriter, r *http.Request) {
@@ -76,7 +76,7 @@ func (s *Server) assetInterceptUpdateRule(w http.ResponseWriter, r *http.Request
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, rule)
+	writeOK(w, rule)
 }
 
 func (s *Server) assetInterceptDeleteRule(w http.ResponseWriter, r *http.Request) {
@@ -93,7 +93,7 @@ func (s *Server) assetInterceptDeleteRule(w http.ResponseWriter, r *http.Request
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"deleted": id})
+	writeOK(w, map[string]any{"deleted": id})
 }
 
 func (s *Server) assetInterceptToggleRule(w http.ResponseWriter, r *http.Request) {
@@ -117,7 +117,7 @@ func (s *Server) assetInterceptToggleRule(w http.ResponseWriter, r *http.Request
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"ok": true, "enabled": req.Enabled})
+	writeOK(w, map[string]any{"ok": true, "enabled": req.Enabled})
 }
 
 // --- helpers ---

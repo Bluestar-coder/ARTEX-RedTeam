@@ -286,7 +286,7 @@ func (s *Server) handleSideQuestions(w http.ResponseWriter, r *http.Request, p s
 			writeErr(w, 500, err.Error())
 			return
 		}
-		writeJSON(w, 200, map[string]bool{"cleared": true})
+		writeOK(w, map[string]bool{"cleared": true})
 		return
 	}
 	snap, err := s.sideSnapshot(r.Context(), p)
@@ -320,7 +320,7 @@ func (s *Server) handleSideQuestions(w http.ResponseWriter, r *http.Request, p s
 			}
 			meta = map[string]any{"captured_at": snap.CapturedAt, "model": snap.Model, "available": modelErr == nil, "reason": reason}
 		}
-		writeJSON(w, 200, map[string]any{"items": items, "current": current, "next_cursor": next, "snapshot": meta})
+		writeOK(w, map[string]any{"items": items, "current": current, "next_cursor": next, "snapshot": meta})
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 32<<10)
@@ -351,7 +351,7 @@ func (s *Server) handleSideQuestions(w http.ResponseWriter, r *http.Request, p s
 			writeErr(w, 409, "同一请求 ID 不能用于不同问题")
 			return
 		}
-		writeJSON(w, 200, existing)
+		writeOK(w, existing)
 		return
 	}
 	if snap == nil {
@@ -507,7 +507,7 @@ func (s *Server) cancelSideRequest(w http.ResponseWriter, r *http.Request) {
 		run.cancel()
 	}
 	s.side.mu.Unlock()
-	writeJSON(w, 200, map[string]bool{"cancelled": true})
+	writeOK(w, map[string]bool{"cancelled": true})
 }
 
 func (s *Server) sideEvents(w http.ResponseWriter, r *http.Request) {

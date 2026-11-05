@@ -221,7 +221,7 @@ func (s *Server) registerPlatformRoutes(mux *http.ServeMux) {
 func (s *Server) getLLM(w http.ResponseWriter, r *http.Request) {
 	s.cfgMu.Lock()
 	defer s.cfgMu.Unlock()
-	writeJSON(w, 200, map[string]any{
+	writeOK(w, map[string]any{
 		"configured":       s.llmOn,
 		"provider":         s.llmCfg.Provider(),
 		"model":            s.llmCfg.Model,
@@ -250,8 +250,7 @@ func (s *Server) setLLM(w http.ResponseWriter, r *http.Request) {
 		ThinkingType    string  `json:"thinking_type"`
 		ReasoningEffort string  `json:"reasoning_effort"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, 400, err.Error())
+	if !decodeBodyErr(w, r, &req, 400) {
 		return
 	}
 	cfg := agent.ConfigFrom(req.Provider, req.Model, req.BaseURL, req.APIKey, req.Proxy)
@@ -309,8 +308,7 @@ func (s *Server) testLLM(w http.ResponseWriter, r *http.Request) {
 		Streaming        *bool  `json:"streaming"`          // 省略=流式，与保存 profile 时同一套默认
 		SessionHeaderKey string `json:"session_header_key"` // 非空=测试时也带该自定义会话头，值为一次性随机 session id
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, 400, err.Error())
+	if !decodeBodyErr(w, r, &req, 400) {
 		return
 	}
 	cfg := agent.ConfigFrom(req.Provider, req.Model, req.BaseURL, req.APIKey, req.Proxy)
@@ -346,7 +344,7 @@ func (s *Server) testLLM(w http.ResponseWriter, r *http.Request) {
 		s.cfgMu.Unlock()
 	}
 	if cfg.APIKey == "" {
-		writeJSON(w, 200, map[string]any{"ok": false, "error": "未提供 API Key"})
+		writeOK(w, map[string]any{"ok": false, "error": "未提供 API Key"})
 		return
 	}
 	// 重试参数【不】带进连接测试:测试有 30s 硬超时,把配置的重试次数/长间隔叠上去
@@ -354,11 +352,11 @@ func (s *Server) testLLM(w http.ResponseWriter, r *http.Request) {
 	// 是跑起来之后的事。
 	lat, reply, err := agent.TestConnection(r.Context(), cfg)
 	if err != nil {
-		writeJSON(w, 200, map[string]any{"ok": false, "error": err.Error()})
+		writeOK(w, map[string]any{"ok": false, "error": err.Error()})
 		return
 	}
 	// 回传模型实际回复，让"测试通过"有据可查：看得见它确实说了话，而不只是 HTTP 200。
-	writeJSON(w, 200, map[string]any{
+	writeOK(w, map[string]any{
 		"ok": true, "latency_ms": lat.Milliseconds(), "model": cfg.Model, "reply": truncateReply(reply),
 	})
 }
@@ -382,7 +380,7 @@ func (s *Server) pgListAgents(w http.ResponseWriter, r *http.Request) {
 			dtos[i].ToolCount = tools[ags[i].Key]
 		}
 	}
-	writeJSON(w, 200, map[string]any{"agents": dtos})
+	writeOK(w, map[string]any{"agents": dtos})
 }
 
 // pgCreateAgent creates a CUSTOM conversational agent (builtin=false, role
@@ -419,7 +417,7 @@ func (s *Server) pgCreateAgent(w http.ResponseWriter, r *http.Request) {
 	if err := pg.SeedPromptIfEmpty(a.ID, agent.DefaultAssistantPrompt); err != nil {
 		log.Printf("[agents] seed starter prompt for %s 失败: %v", a.Key, err)
 	}
-	writeJSON(w, 200, agentDTO(a))
+	writeOK(w, agentDTO(a))
 }
 
 // pgUpdateAgent updates a custom agent's name/description (built-in agents rejected).
@@ -446,7 +444,7 @@ func (s *Server) pgUpdateAgent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"ok": true})
+	writeOK(w, map[string]any{"ok": true})
 }
 
 // pgDeleteAgent removes a custom agent (built-in rejected). Prompts/vars/visibility
@@ -470,7 +468,7 @@ func (s *Server) pgDeleteAgent(w http.ResponseWriter, r *http.Request) {
 	if err := pg.DeleteTriggersForAgent(a.Key); err != nil {
 		log.Printf("[agents] 清理 %s 触发器失败: %v", a.Key, err)
 	}
-	writeJSON(w, 200, map[string]any{"deleted": a.Key})
+	writeOK(w, map[string]any{"deleted": a.Key})
 }
 
 // pgSaveAgentConfig updates an agent's runtime config (currently max_turns) and
@@ -495,8 +493,7 @@ func (s *Server) pgSaveAgentConfig(w http.ResponseWriter, r *http.Request) {
 		TriggerMergeMode   *string `json:"trigger_merge_mode"`
 		TriggerMaxParallel *int    `json:"trigger_max_parallel"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, 400, err.Error())
+	if !decodeBodyErr(w, r, &req, 400) {
 		return
 	}
 	profileChanged := false
@@ -590,7 +587,7 @@ func (s *Server) pgSaveAgentConfig(w http.ResponseWriter, r *http.Request) {
 	if req.RunSeconds != nil {
 		resp["run_seconds"] = *req.RunSeconds
 	}
-	writeJSON(w, 200, resp)
+	writeOK(w, resp)
 }
 
 func (s *Server) pgGetAgent(w http.ResponseWriter, r *http.Request) {
@@ -618,7 +615,7 @@ func (s *Server) pgGetAgent(w http.ResponseWriter, r *http.Request) {
 			"id": p.ID, "name": p.Name, "model": p.Model, "is_default": p.IsDefault,
 		})
 	}
-	writeJSON(w, 200, map[string]any{
+	writeOK(w, map[string]any{
 		"agent": agentDTO(a), "prompt": cur, "variables": vars, "versions": vers,
 		"visibility":   map[string]any{"mcp": mcp, "skill": sk},
 		"llm_profiles": llmProfiles, // 可绑定的 LLM 配置候选
@@ -656,7 +653,7 @@ func (s *Server) pgSavePrompt(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"version": ver})
+	writeOK(w, map[string]any{"version": ver})
 }
 
 // pgResetPrompt restores an agent's prompt body to the in-code built-in default
@@ -676,7 +673,7 @@ func (s *Server) pgResetPrompt(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"version": ver})
+	writeOK(w, map[string]any{"version": ver})
 }
 
 // pgSaveWrapup stores an agent's wrap-up (settlement) prompt — the text injected on
@@ -709,7 +706,7 @@ func (s *Server) pgSaveWrapup(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	writeJSON(w, 200, map[string]any{"ok": true})
+	writeOK(w, map[string]any{"ok": true})
 }
 
 // pgResetWrapup clears an agent's wrap-up prompt override so the code built-in
@@ -727,7 +724,7 @@ func (s *Server) pgResetWrapup(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{
+	writeOK(w, map[string]any{
 		"ok":                       true,
 		"wrapup_default":           agent.WrapupDefault(a.Key),
 		"wrapup_max_turns_default": agent.WrapupTurnsDefault(a.Key),
@@ -760,7 +757,7 @@ func (s *Server) pgSaveTaskTimeoutWrapup(w http.ResponseWriter, r *http.Request)
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"ok": true})
+	writeOK(w, map[string]any{"ok": true})
 }
 
 // pgResetTaskTimeoutWrapup clears the task-timeout wrap-up override → built-in default.
@@ -773,7 +770,7 @@ func (s *Server) pgResetTaskTimeoutWrapup(w http.ResponseWriter, r *http.Request
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{
+	writeOK(w, map[string]any{
 		"ok":                                    true,
 		"task_timeout_wrapup_default":           agent.TaskTimeoutWrapupDefault(a.Key),
 		"task_timeout_wrapup_max_turns_default": agent.WrapupTurnsDefault(a.Key),
@@ -790,7 +787,7 @@ func (s *Server) pgListPromptVersions(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"versions": vers})
+	writeOK(w, map[string]any{"versions": vers})
 }
 
 func (s *Server) pgPromptVars(w http.ResponseWriter, r *http.Request) {
@@ -803,7 +800,7 @@ func (s *Server) pgPromptVars(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"variables": withGlobalVars(vars)})
+	writeOK(w, map[string]any{"variables": withGlobalVars(vars)})
 }
 
 func (s *Server) pgPreviewPrompt(w http.ResponseWriter, r *http.Request) {
@@ -822,10 +819,10 @@ func (s *Server) pgPreviewPrompt(w http.ResponseWriter, r *http.Request) {
 	}
 	rendered, err := renderPrompt(body.Template, withGlobalVars(vars), body.Sample)
 	if err != nil {
-		writeJSON(w, 200, map[string]any{"rendered": "", "error": err.Error()})
+		writeOK(w, map[string]any{"rendered": "", "error": err.Error()})
 		return
 	}
-	writeJSON(w, 200, map[string]any{"rendered": rendered})
+	writeOK(w, map[string]any{"rendered": rendered})
 }
 
 func (s *Server) pgGetAgentVisibility(w http.ResponseWriter, r *http.Request) {
@@ -838,7 +835,7 @@ func (s *Server) pgGetAgentVisibility(w http.ResponseWriter, r *http.Request) {
 	if sk == nil {
 		sk = []string{}
 	}
-	writeJSON(w, 200, map[string]any{"mcp": mcp, "skill": sk})
+	writeOK(w, map[string]any{"mcp": mcp, "skill": sk})
 }
 
 func (s *Server) pgSetAgentVisibility(w http.ResponseWriter, r *http.Request) {
@@ -862,7 +859,7 @@ func (s *Server) pgSetAgentVisibility(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"ok": true})
+	writeOK(w, map[string]any{"ok": true})
 }
 
 func (s *Server) pgListTools(w http.ResponseWriter, r *http.Request) {
@@ -888,7 +885,7 @@ func (s *Server) pgListTools(w http.ResponseWriter, r *http.Request) {
 			tool.Calls = counts[tool.Key]
 		}
 	}
-	writeJSON(w, 200, map[string]any{"tools": ts})
+	writeOK(w, map[string]any{"tools": ts})
 }
 
 // pgUpdateTool saves the page-editable fields of a built-in tool: description,
@@ -925,7 +922,7 @@ func (s *Server) pgUpdateTool(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"ok": true})
+	writeOK(w, map[string]any{"ok": true})
 }
 
 // pgResetTool overwrites a tool row with its code-defined defaults (description,
@@ -947,7 +944,7 @@ func (s *Server) pgResetTool(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 500, err.Error())
 			return
 		}
-		writeJSON(w, 200, map[string]any{"ok": true})
+		writeOK(w, map[string]any{"ok": true})
 		return
 	}
 	// orchestration/platform tools (auto agent) — default-bind to "auto".
@@ -961,7 +958,7 @@ func (s *Server) pgResetTool(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 500, err.Error())
 			return
 		}
-		writeJSON(w, 200, map[string]any{"ok": true})
+		writeOK(w, map[string]any{"ok": true})
 		return
 	}
 	writeErr(w, 404, "非内置工具或不存在: "+key)
@@ -980,7 +977,7 @@ func (s *Server) pgListMCP(w http.ResponseWriter, r *http.Request) {
 	if ms == nil {
 		ms = []*db.MCPServer{}
 	}
-	writeJSON(w, 200, map[string]any{"servers": ms})
+	writeOK(w, map[string]any{"servers": ms})
 }
 
 func (s *Server) pgSaveMCP(w http.ResponseWriter, r *http.Request) {
@@ -1019,7 +1016,7 @@ func (s *Server) pgSaveMCP(w http.ResponseWriter, r *http.Request) {
 		}
 		cancel()
 	}
-	writeJSON(w, 200, map[string]any{"id": id})
+	writeOK(w, map[string]any{"id": id})
 }
 
 func (s *Server) pgDeleteMCP(w http.ResponseWriter, r *http.Request) {
@@ -1032,7 +1029,7 @@ func (s *Server) pgDeleteMCP(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"deleted": id})
+	writeOK(w, map[string]any{"deleted": id})
 }
 
 // pgRefreshMCP re-discovers one MCP's tools on demand and re-caches them, so a
@@ -1066,7 +1063,7 @@ func (s *Server) pgRefreshMCP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tools, _ := pg.MCPToolsDetailed(id)
-	writeJSON(w, 200, map[string]any{"tools": tools})
+	writeOK(w, map[string]any{"tools": tools})
 }
 
 // pgMCPTools returns one MCP's cached tools (name + description) for the detail UI.
@@ -1084,7 +1081,7 @@ func (s *Server) pgMCPTools(w http.ResponseWriter, r *http.Request) {
 	if tools == nil {
 		tools = []db.MCPTool{}
 	}
-	writeJSON(w, 200, map[string]any{"tools": tools})
+	writeOK(w, map[string]any{"tools": tools})
 }
 
 func (s *Server) fsListSkills(w http.ResponseWriter, r *http.Request) {
@@ -1137,7 +1134,7 @@ func (s *Server) fsListSkills(w http.ResponseWriter, r *http.Request) {
 		}
 		nodes = append(nodes, node)
 	}
-	writeJSON(w, 200, map[string]any{"skills": nodes})
+	writeOK(w, map[string]any{"skills": nodes})
 }
 
 // fsSkillUsage returns one skill's recent invocations, newest first (detail panel).
@@ -1157,7 +1154,7 @@ func (s *Server) fsSkillUsage(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"calls": calls})
+	writeOK(w, map[string]any{"calls": calls})
 }
 
 // fsMissingSkills lists skill names agents asked for that do not exist — the gap
@@ -1173,7 +1170,7 @@ func (s *Server) fsMissingSkills(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"missing": missing})
+	writeOK(w, map[string]any{"missing": missing})
 }
 
 func (s *Server) fsCreateSkill(w http.ResponseWriter, r *http.Request) {
@@ -1277,7 +1274,7 @@ func (s *Server) fsUpdateSkillMeta(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"ok": true})
+	writeOK(w, map[string]any{"ok": true})
 }
 
 // fsUploadSkill installs a skill from an uploaded .zip. The archive must contain a
@@ -1456,7 +1453,7 @@ func (s *Server) fsDeleteSkill(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"deleted": name})
+	writeOK(w, map[string]any{"deleted": name})
 }
 
 func (s *Server) fsListFiles(w http.ResponseWriter, r *http.Request) {
@@ -1478,7 +1475,7 @@ func (s *Server) fsListFiles(w http.ResponseWriter, r *http.Request) {
 	if files == nil {
 		files = []string{}
 	}
-	writeJSON(w, 200, map[string]any{"files": files})
+	writeOK(w, map[string]any{"files": files})
 }
 
 func (s *Server) fsReadFile(w http.ResponseWriter, r *http.Request) {
@@ -1501,7 +1498,7 @@ func (s *Server) fsReadFile(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"content": string(data), "file": file})
+	writeOK(w, map[string]any{"content": string(data), "file": file})
 }
 
 func (s *Server) fsWriteFile(w http.ResponseWriter, r *http.Request) {
@@ -1537,7 +1534,7 @@ func (s *Server) fsWriteFile(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"ok": true})
+	writeOK(w, map[string]any{"ok": true})
 }
 
 func (s *Server) fsCreateDir(w http.ResponseWriter, r *http.Request) {
@@ -1590,7 +1587,7 @@ func (s *Server) fsDeletePath(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"deleted": file})
+	writeOK(w, map[string]any{"deleted": file})
 }
 
 func (s *Server) pgListProfiles(w http.ResponseWriter, r *http.Request) {
@@ -1603,7 +1600,7 @@ func (s *Server) pgListProfiles(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"profiles": llmProfileDTOs(ps)})
+	writeOK(w, map[string]any{"profiles": llmProfileDTOs(ps)})
 }
 
 func (s *Server) pgSaveProfile(w http.ResponseWriter, r *http.Request) {
@@ -1650,7 +1647,7 @@ func (s *Server) pgSaveProfile(w http.ResponseWriter, r *http.Request) {
 	// profile's key/model/priority/pool_exclude edit reshapes the chain, so the
 	// engine's provider has to be rebuilt either way.
 	s.reapplyActiveProfile()
-	writeJSON(w, 200, map[string]any{"id": id})
+	writeOK(w, map[string]any{"id": id})
 }
 
 // pgGetLLMRetryPolicy 返回全局重试策略(五层各自的次数+间隔)。未配置过 → 全零，
@@ -1660,7 +1657,7 @@ func (s *Server) pgGetLLMRetryPolicy(w http.ResponseWriter, r *http.Request) {
 	if pg == nil {
 		return
 	}
-	writeJSON(w, 200, pg.LLMRetryPolicy())
+	writeOK(w, pg.LLMRetryPolicy())
 }
 
 // pgSaveLLMRetryPolicy 保存全局重试策略。三个「跟着端点走」的层(建连/空响应/同
@@ -1683,7 +1680,7 @@ func (s *Server) pgSaveLLMRetryPolicy(w http.ResponseWriter, r *http.Request) {
 	s.applyRetryPolicy()
 	s.invalidateProfileAgents()
 	s.reapplyActiveProfile()
-	writeJSON(w, 200, pg.LLMRetryPolicy())
+	writeOK(w, pg.LLMRetryPolicy())
 }
 
 func (s *Server) pgDeleteProfile(w http.ResponseWriter, r *http.Request) {
@@ -1713,7 +1710,7 @@ func (s *Server) pgDeleteProfile(w http.ResponseWriter, r *http.Request) {
 	// Cache invalidation also removed the active profile's shared provider entry.
 	// Reapply after task-state sync so the wake-up observes the post-delete chain.
 	s.reapplyActiveProfile()
-	writeJSON(w, 200, map[string]any{"deleted": id})
+	writeOK(w, map[string]any{"deleted": id})
 }
 
 func (s *Server) pgActivateProfile(w http.ResponseWriter, r *http.Request) {
@@ -1734,7 +1731,7 @@ func (s *Server) pgActivateProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	s.invalidateProfileAgents() // active change may affect pinned-task fallbacks
 	s.reapplyActiveProfile()    // switch the running engine to the newly activated profile
-	writeJSON(w, 200, map[string]any{"ok": true})
+	writeOK(w, map[string]any{"ok": true})
 }
 
 // pgLLMPoolStatus reports the failover ("轮询") switches, the resolved chain order
@@ -1744,7 +1741,7 @@ func (s *Server) pgLLMPoolStatus(w http.ResponseWriter, r *http.Request) {
 	if s.pg(w) == nil {
 		return
 	}
-	writeJSON(w, 200, s.llmPoolStatus())
+	writeOK(w, s.llmPoolStatus())
 }
 
 // pgLLMPoolReset clears a tripped profile's circuit breaker so the next call
@@ -1768,7 +1765,7 @@ func (s *Server) pgLLMPoolReset(w http.ResponseWriter, r *http.Request) {
 			s.llmHealth.Reset(id)
 		}
 	}
-	writeJSON(w, 200, s.llmPoolStatus())
+	writeOK(w, s.llmPoolStatus())
 }
 
 // pgListModels fetches available models from the provider's API endpoint.
@@ -1795,7 +1792,7 @@ func (s *Server) pgListModels(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if apiKey == "" {
-		writeJSON(w, 200, map[string]any{"ok": false, "error": "未提供 API Key"})
+		writeOK(w, map[string]any{"ok": false, "error": "未提供 API Key"})
 		return
 	}
 
@@ -1895,17 +1892,17 @@ func (s *Server) pgListModels(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if len(models) > 0 {
-			writeJSON(w, 200, map[string]any{"ok": true, "models": models})
+			writeOK(w, map[string]any{"ok": true, "models": models})
 			return
 		}
 		emptyOK = true // 200 but no model ids — keep trying other candidates
 	}
 	if emptyOK {
-		writeJSON(w, 200, map[string]any{"ok": true, "models": []string{}})
+		writeOK(w, map[string]any{"ok": true, "models": []string{}})
 		return
 	}
 	if lastErr == "" {
 		lastErr = "未获取到模型列表"
 	}
-	writeJSON(w, 200, map[string]any{"ok": false, "error": lastErr})
+	writeOK(w, map[string]any{"ok": false, "error": lastErr})
 }

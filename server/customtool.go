@@ -76,7 +76,7 @@ func (s *Server) pgCreateCustomTool(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"key": req.Key})
+	writeOK(w, map[string]any{"key": req.Key})
 }
 
 func (s *Server) pgUpdateCustomTool(w http.ResponseWriter, r *http.Request) {
@@ -114,7 +114,7 @@ func (s *Server) pgUpdateCustomTool(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"ok": true})
+	writeOK(w, map[string]any{"ok": true})
 }
 
 func (s *Server) pgDeleteCustomTool(w http.ResponseWriter, r *http.Request) {
@@ -127,7 +127,7 @@ func (s *Server) pgDeleteCustomTool(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"deleted": key})
+	writeOK(w, map[string]any{"deleted": key})
 }
 
 // testToolReq is a dry-run request from the editor: run the given (possibly unsaved)
@@ -149,8 +149,7 @@ func (s *Server) pgTestCustomTool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req testToolReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, 400, "无效的请求体")
+	if !decodeBodyMsg(w, r, &req, 400, "无效的请求体") {
 		return
 	}
 	params := req.Params
@@ -175,7 +174,7 @@ func (s *Server) pgTestCustomTool(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "未知工具类型: "+req.Kind)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"output": res.Flatten(), "is_error": res.IsError})
+	writeOK(w, map[string]any{"output": res.Flatten(), "is_error": res.IsError})
 }
 
 // ---------- Python 解释器(检测 + 入库 + 覆盖) ----------

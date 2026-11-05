@@ -103,7 +103,7 @@ func (s *Server) chatUpload(w http.ResponseWriter, r *http.Request) {
 		base := filepath.Base(dest)
 		out = append(out, chatAttachment{Name: base, Path: "uploads/" + base, Size: hdr.Size, Abs: dest})
 	}
-	writeJSON(w, 200, map[string]any{"attachments": out})
+	writeOK(w, map[string]any{"attachments": out})
 }
 
 // uniqueUploadPath returns dir/name, or dir/name-1, dir/name-2… when it already exists,

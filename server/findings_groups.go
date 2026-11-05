@@ -48,7 +48,7 @@ func (s *Server) findingAssetTree(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, tree)
+	writeOK(w, tree)
 }
 
 // findingGroups serves the task-group page used by the global findings view.
@@ -77,7 +77,7 @@ func (s *Server) findingGroups(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	writeJSON(w, 200, map[string]any{
+	writeOK(w, map[string]any{
 		"items":         groups,
 		"total":         total,
 		"finding_total": findingTotal,
@@ -177,7 +177,7 @@ func (s *Server) deepenFinding(w http.ResponseWriter, r *http.Request) {
 	if current, stateErr := t.Store.GetNode(intentID); stateErr == nil && current != nil {
 		state = current.State
 	}
-	writeJSON(w, 200, map[string]any{
+	writeOK(w, map[string]any{
 		"task_id":   t.ID,
 		"intent_id": i64s(intentID),
 		"state":     state,

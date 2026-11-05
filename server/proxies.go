@@ -56,7 +56,7 @@ func (s *Server) listProxies(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"proxies": maskProxies(rows), "total": total})
+	writeOK(w, map[string]any{"proxies": maskProxies(rows), "total": total})
 }
 
 // proxyCreateReq is the create/update body. Password "" on update keeps the
@@ -100,7 +100,7 @@ func (s *Server) createProxy(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"id": id})
+	writeOK(w, map[string]any{"id": id})
 }
 
 // updateProxy PUT /api/proxies/{id} — edit one proxy. A blank password preserves
@@ -130,7 +130,7 @@ func (s *Server) updateProxy(w http.ResponseWriter, r *http.Request) {
 		writeProxyErr(w, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"ok": true})
+	writeOK(w, map[string]any{"ok": true})
 }
 
 // deleteProxy DELETE /api/proxies/{id}.
@@ -144,7 +144,7 @@ func (s *Server) deleteProxy(w http.ResponseWriter, r *http.Request) {
 		writeProxyErr(w, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"ok": true})
+	writeOK(w, map[string]any{"ok": true})
 }
 
 // importProxies POST /api/proxies/import — body {"text":"host:port\n..."}; adds
@@ -162,7 +162,7 @@ func (s *Server) importProxies(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"added": added, "invalid": invalid})
+	writeOK(w, map[string]any{"added": added, "invalid": invalid})
 }
 
 // checkProxy POST /api/proxies/{id}/check — probe one proxy on demand.
@@ -177,7 +177,7 @@ func (s *Server) checkProxy(w http.ResponseWriter, r *http.Request) {
 		writeProxyErr(w, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{
+	writeOK(w, map[string]any{
 		"ok": res.OK, "latency_ms": res.Latency.Milliseconds(), "error": res.Err,
 	})
 }
@@ -189,7 +189,7 @@ func (s *Server) listProxySources(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"sources": sources})
+	writeOK(w, map[string]any{"sources": sources})
 }
 
 // fetchProxySource POST /api/proxy-sources/{name}/fetch — pull one free source now.
@@ -200,7 +200,7 @@ func (s *Server) fetchProxySource(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"fetched": total, "added": added})
+	writeOK(w, map[string]any{"fetched": total, "added": added})
 }
 
 // setProxySource PUT /api/proxy-sources/{name} — body {"enabled":bool}.
@@ -216,7 +216,7 @@ func (s *Server) setProxySource(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"ok": true})
+	writeOK(w, map[string]any{"ok": true})
 }
 
 func writeProxyErr(w http.ResponseWriter, err error) {

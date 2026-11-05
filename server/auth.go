@@ -263,7 +263,7 @@ func (s *Server) authStatus(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 503, errDataSourceUnavailable)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"initialized": hash != ""})
+	writeOK(w, map[string]any{"initialized": hash != ""})
 }
 
 // POST /api/auth/init — sets the password for the first time; rejected if already set.
@@ -315,7 +315,7 @@ func (s *Server) authInit(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "token 生成失败")
 		return
 	}
-	writeJSON(w, 200, map[string]any{"token": tok})
+	writeOK(w, map[string]any{"token": tok})
 }
 
 // POST /api/auth/change-password — changes the admin password. Requires a valid
@@ -377,7 +377,7 @@ func (s *Server) authChangePassword(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "token 生成失败")
 		return
 	}
-	writeJSON(w, 200, map[string]any{"ok": true, "token": tok})
+	writeOK(w, map[string]any{"ok": true, "token": tok})
 }
 
 // POST /api/auth/login — validates username/password and returns a JWT.
@@ -417,5 +417,5 @@ func (s *Server) authLogin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "token 生成失败")
 		return
 	}
-	writeJSON(w, 200, map[string]any{"token": tok})
+	writeOK(w, map[string]any{"token": tok})
 }

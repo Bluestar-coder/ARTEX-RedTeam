@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -77,8 +76,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		Attachments []chatAttachment `json:"attachments,omitempty"` // 方式1 上传的文件(路径相对任务工作目录)
 		Seg         *int             `json:"seg,omitempty"`         // 目标主会话分段;缺省=最新段
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, 400, err.Error())
+	if !decodeBodyErr(w, r, &req, 400) {
 		return
 	}
 	agentMessage, ok := s.prepareChatMentionMessage(w, req.Message)
@@ -165,5 +163,5 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	reply := s.fallbackChat(t, req.Message)
 	s.engine.emitActivity(t, db.Activity{Worker: "mainagent", Kind: "text", Summary: reply, MainSeg: segPtr})
 	s.finishTaskChat(t.ID, cancel)
-	writeJSON(w, 200, map[string]any{"reply": reply, "mode": "rule"})
+	writeOK(w, map[string]any{"reply": reply, "mode": "rule"})
 }

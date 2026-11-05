@@ -62,7 +62,7 @@ func (s *Server) pgSkillVisibility(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"agents": idStrings(agents)})
+	writeOK(w, map[string]any{"agents": idStrings(agents)})
 }
 
 func (s *Server) pgToggleSkillVisibility(w http.ResponseWriter, r *http.Request) {
@@ -83,7 +83,7 @@ func (s *Server) pgToggleSkillVisibility(w http.ResponseWriter, r *http.Request)
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"ok": true})
+	writeOK(w, map[string]any{"ok": true})
 }
 
 func (s *Server) pgResourceVisibility(w http.ResponseWriter, r *http.Request) {
@@ -97,7 +97,7 @@ func (s *Server) pgResourceVisibility(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"agents": idStrings(agents)})
+	writeOK(w, map[string]any{"agents": idStrings(agents)})
 }
 
 func (s *Server) pgToggleVisibility(w http.ResponseWriter, r *http.Request) {
@@ -119,5 +119,5 @@ func (s *Server) pgToggleVisibility(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"ok": true})
+	writeOK(w, map[string]any{"ok": true})
 }

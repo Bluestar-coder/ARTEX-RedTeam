@@ -97,7 +97,7 @@ func (s *Server) wsList(w http.ResponseWriter, r *http.Request) {
 		}
 		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
 	})
-	writeJSON(w, 200, map[string]any{"path": s.wsRel(abs), "entries": out})
+	writeOK(w, map[string]any{"path": s.wsRel(abs), "entries": out})
 }
 
 // GET /api/workspace/read?path=<rel> — inline text for view/edit. Binary or oversize
@@ -118,7 +118,7 @@ func (s *Server) wsRead(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if fi.Size() > maxWorkspaceRead {
-		writeJSON(w, 200, map[string]any{"path": s.wsRel(abs), "size": fi.Size(), "too_large": true, "binary": true})
+		writeOK(w, map[string]any{"path": s.wsRel(abs), "size": fi.Size(), "too_large": true, "binary": true})
 		return
 	}
 	data, err := os.ReadFile(abs)
@@ -127,10 +127,10 @@ func (s *Server) wsRead(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if bytes.IndexByte(data, 0) >= 0 || !utf8.Valid(data) {
-		writeJSON(w, 200, map[string]any{"path": s.wsRel(abs), "size": fi.Size(), "binary": true})
+		writeOK(w, map[string]any{"path": s.wsRel(abs), "size": fi.Size(), "binary": true})
 		return
 	}
-	writeJSON(w, 200, map[string]any{"path": s.wsRel(abs), "size": fi.Size(), "binary": false, "content": string(data)})
+	writeOK(w, map[string]any{"path": s.wsRel(abs), "size": fi.Size(), "binary": false, "content": string(data)})
 }
 
 // POST /api/workspace/write  {path, content} — create/overwrite a text file.
@@ -160,7 +160,7 @@ func (s *Server) wsWrite(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"ok": true, "path": s.wsRel(abs)})
+	writeOK(w, map[string]any{"ok": true, "path": s.wsRel(abs)})
 }
 
 // POST /api/workspace/mkdir  {path}
@@ -181,7 +181,7 @@ func (s *Server) wsMkdir(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"ok": true, "path": s.wsRel(abs)})
+	writeOK(w, map[string]any{"ok": true, "path": s.wsRel(abs)})
 }
 
 // DELETE /api/workspace/delete?path=<rel> — removes a file or a directory tree
@@ -204,7 +204,7 @@ func (s *Server) wsDelete(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"ok": true})
+	writeOK(w, map[string]any{"ok": true})
 }
 
 // GET /api/workspace/download?path=<rel> — stream a file as an attachment.
@@ -262,7 +262,7 @@ func (s *Server) wsUpload(w http.ResponseWriter, r *http.Request) {
 		}
 		saved++
 	}
-	writeJSON(w, 200, map[string]any{"uploaded": saved})
+	writeOK(w, map[string]any{"uploaded": saved})
 }
 
 func saveUpload(hdr *multipart.FileHeader, dest string) error {

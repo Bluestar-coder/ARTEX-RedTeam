@@ -132,7 +132,7 @@ func (s *Server) notifyMeta(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{
+	writeOK(w, map[string]any{
 		"kinds":               kinds,
 		"enabled":             pg.GetBool(settingNotifyEnabled, true),
 		"public_base_url":     baseURL,
@@ -158,7 +158,7 @@ func (s *Server) notifyListChannels(w http.ResponseWriter, r *http.Request) {
 	for _, ch := range channels {
 		out = append(out, toNotifyChannelDTO(ch))
 	}
-	writeJSON(w, 200, map[string]any{"channels": out})
+	writeOK(w, map[string]any{"channels": out})
 }
 
 // notifyChannelRequest 是新建/更新渠道的请求体。
@@ -248,7 +248,7 @@ func (s *Server) notifyCreateChannel(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"id": id})
+	writeOK(w, map[string]any{"id": id})
 }
 
 func (s *Server) notifyUpdateChannel(w http.ResponseWriter, r *http.Request) {
@@ -364,14 +364,14 @@ func (s *Server) notifyUpdateChannel(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 500, err.Error())
 			return
 		}
-		writeJSON(w, 200, map[string]any{"id": id})
+		writeOK(w, map[string]any{"id": id})
 		return
 	}
 	if _, err := pg.SaveNotificationChannel(r.Context(), ch); err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"id": id})
+	writeOK(w, map[string]any{"id": id})
 }
 
 func (s *Server) notifyDeleteChannel(w http.ResponseWriter, r *http.Request) {
@@ -388,7 +388,7 @@ func (s *Server) notifyDeleteChannel(w http.ResponseWriter, r *http.Request) {
 		notifyChannelLookupErr(w, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"ok": true})
+	writeOK(w, map[string]any{"ok": true})
 }
 
 // notifyTestChannel 用当前保存的配置发一条测试消息。
@@ -433,7 +433,7 @@ func (s *Server) notifyTestChannel(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 502, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{
+	writeOK(w, map[string]any{
 		"ok":         true,
 		"latency_ms": time.Since(start).Milliseconds(),
 	})
@@ -485,7 +485,7 @@ func (s *Server) notifyListDeliveries(w http.ResponseWriter, r *http.Request) {
 	for _, dl := range items {
 		out = append(out, toNotifyDeliveryDTO(dl))
 	}
-	writeJSON(w, 200, map[string]any{"deliveries": out, "total": total, "page": page, "page_size": pageSize})
+	writeOK(w, map[string]any{"deliveries": out, "total": total, "page": page, "page_size": pageSize})
 }
 
 func (s *Server) notifyRetryDelivery(w http.ResponseWriter, r *http.Request) {
@@ -502,7 +502,7 @@ func (s *Server) notifyRetryDelivery(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"ok": true})
+	writeOK(w, map[string]any{"ok": true})
 }
 
 // notifyChannelLookupErr 把「渠道不存在」翻译成 404，其余错误 500。
