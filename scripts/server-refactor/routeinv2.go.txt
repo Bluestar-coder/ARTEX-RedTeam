@@ -1,0 +1,323 @@
+// Route inventory v2: expands literal loops and string concatenations so the
+// table matches what ServeMux actually receives.
+//
+// Output TSV: METHOD, PATTERN, HANDLER, FILE:LINE, AUTH
+// Usage: go run routeinv2.go <repo-root>
+package main
+
+import (
+	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/printer"
+	"go/token"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+)
+
+type row struct {
+	method, pattern, handler, file string
+	line                           int
+	auth                           string
+}
+
+func main() {
+	root := os.Args[1]
+	dir := filepath.Join(root, "server")
+	fset := token.NewFileSet()
+	public := parsePublic(fset, dir)
+
+	var rows []row
+	files, _ := filepath.Glob(filepath.Join(dir, "*.go"))
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		pf, err := parser.ParseFile(fset, f, nil, 0)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			continue
+		}
+		rel, _ := filepath.Rel(root, f)
+		for _, d := range pf.Decls {
+			fd, ok := d.(*ast.FuncDecl)
+			if !ok || fd.Body == nil {
+				continue
+			}
+			env := map[string]any{}
+			walkBlock(fd.Body, env, func(call *ast.CallExpr, env map[string]any) {
+				sel, ok := call.Fun.(*ast.SelectorExpr)
+				if !ok || sel.Sel.Name != "HandleFunc" || len(call.Args) < 2 {
+					return
+				}
+				pat, ok := evalString(call.Args[0], env)
+				if !ok {
+					pat = "<dynamic>"
+				}
+				method, path := "ANY", pat
+				if parts := strings.SplitN(pat, " ", 2); len(parts) == 2 {
+					method, path = parts[0], parts[1]
+				}
+				auth := "JWT"
+				if public[path] {
+					auth = "public"
+				}
+				var b strings.Builder
+				_ = printer.Fprint(&b, fset, call.Args[1])
+				rows = append(rows, row{
+					method: method, pattern: pat, handler: strings.ReplaceAll(b.String(), "\n", " "),
+					file: rel, line: fset.Position(call.Pos()).Line, auth: auth,
+				})
+			})
+		}
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].pattern != rows[j].pattern {
+			return rows[i].pattern < rows[j].pattern
+		}
+		return rows[i].handler < rows[j].handler
+	})
+	fmt.Println("METHOD\tPATTERN\tHANDLER\tFILE\tAUTH")
+	for _, r := range rows {
+		fmt.Printf("%s\t%s\t%s\t%s:%d\t%s\n", r.method, r.pattern, r.handler, r.file, r.line, r.auth)
+	}
+	fmt.Fprintf(os.Stderr, "routes=%d\n", len(rows))
+}
+
+func walkBlock(b *ast.BlockStmt, env map[string]any, emit func(*ast.CallExpr, map[string]any)) {
+	if b == nil {
+		return
+	}
+	for _, st := range b.List {
+		walkStmt(st, env, emit)
+	}
+}
+
+func walkStmt(st ast.Stmt, env map[string]any, emit func(*ast.CallExpr, map[string]any)) {
+	switch s := st.(type) {
+	case *ast.AssignStmt:
+		if len(s.Lhs) == len(s.Rhs) {
+			for i, lhs := range s.Lhs {
+				id, ok := lhs.(*ast.Ident)
+				if !ok {
+					continue
+				}
+				if v, ok := evalString(s.Rhs[i], env); ok {
+					env[id.Name] = v
+				}
+			}
+		}
+	case *ast.ExprStmt:
+		if call, ok := s.X.(*ast.CallExpr); ok {
+			emit(call, env)
+		}
+	case *ast.RangeStmt:
+		valName := ""
+		if id, ok := s.Value.(*ast.Ident); ok {
+			valName = id.Name
+		}
+		keyName := ""
+		if id, ok := s.Key.(*ast.Ident); ok {
+			keyName = id.Name
+		}
+		expandRange(s.X, keyName, valName, env, func(inner map[string]any) {
+			walkBlock(s.Body, inner, emit)
+		})
+	case *ast.IfStmt:
+		walkBlock(s.Body, env, emit)
+		if s.Else != nil {
+			walkStmt(s.Else, env, emit)
+		}
+	case *ast.ForStmt:
+		walkBlock(s.Body, env, emit)
+	case *ast.BlockStmt:
+		walkBlock(s, env, emit)
+	case *ast.SwitchStmt:
+		walkBlock(s.Body, env, emit)
+	case *ast.TypeSwitchStmt:
+		walkBlock(s.Body, env, emit)
+	case *ast.SelectStmt:
+		walkBlock(s.Body, env, emit)
+	}
+}
+
+// expandRange handles the two literal forms used for grouped route registration:
+//   for _, method := range []string{"GET", "POST"} { ... }
+//   for _, route := range []struct{ path, kind string }{{"/a", "x"}, ...} { ... }
+func expandRange(x ast.Expr, keyName, valName string, env map[string]any, fn func(map[string]any)) {
+	cl, ok := x.(*ast.CompositeLit)
+	if !ok {
+		fn(env) // cannot expand; walk body once so a <dynamic> row is emitted
+		return
+	}
+	switch t := cl.Type.(type) {
+	case *ast.ArrayType: // []string{...} or []struct{...}{...}
+		if st, ok := t.Elt.(*ast.StructType); ok {
+			_ = st
+			for _, el := range cl.Elts {
+				sl, ok := el.(*ast.CompositeLit)
+				if !ok {
+					continue
+				}
+				n := clone(env)
+				if valName != "" {
+					n[valName] = bindStruct(sl, st, env)
+				}
+				fn(n)
+			}
+			return
+		}
+		for _, el := range cl.Elts {
+			v, ok := evalString(el, env)
+			if !ok {
+				continue
+			}
+			n := clone(env)
+			if keyName != "" {
+				n[keyName] = v
+			}
+			if valName != "" {
+				n[valName] = v
+			}
+			fn(n)
+		}
+	case *ast.StructType: // []struct{...}{{...}}
+		for _, el := range cl.Elts {
+			sl, ok := el.(*ast.CompositeLit)
+			if !ok {
+				continue
+			}
+			n := clone(env)
+			if valName != "" {
+				n[valName] = bindStruct(sl, t, env)
+			}
+			fn(n)
+		}
+	default:
+		fn(env)
+	}
+}
+
+
+func structFields(st *ast.StructType) []string {
+	var out []string
+	if st.Fields == nil {
+		return out
+	}
+	for _, f := range st.Fields.List {
+		for _, n := range f.Names {
+			out = append(out, n.Name)
+		}
+	}
+	return out
+}
+
+func bindStruct(sl *ast.CompositeLit, st *ast.StructType, env map[string]any) map[string]string {
+	names := structFields(st)
+	fields := map[string]string{}
+	pos := 0
+	for _, fe := range sl.Elts {
+		if kv, ok := fe.(*ast.KeyValueExpr); ok {
+			if key, ok := kv.Key.(*ast.Ident); ok {
+				if v, ok := evalString(kv.Value, env); ok {
+					fields[key.Name] = v
+				}
+			}
+			continue
+		}
+		if pos < len(names) {
+			if v, ok := evalString(fe, env); ok {
+				fields[names[pos]] = v
+			}
+		}
+		pos++
+	}
+	return fields
+}
+
+func clone(in map[string]any) map[string]any {
+	out := make(map[string]any, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
+func evalString(e ast.Expr, env map[string]any) (string, bool) {
+	switch x := e.(type) {
+	case *ast.BasicLit:
+		if x.Kind == token.STRING {
+			return strings.Trim(x.Value, `"`), true
+		}
+	case *ast.Ident:
+		if v, ok := env[x.Name]; ok {
+			if s, ok := v.(string); ok {
+				return s, true
+			}
+		}
+	case *ast.BinaryExpr:
+		if x.Op == token.ADD {
+			l, ok1 := evalString(x.X, env)
+			r, ok2 := evalString(x.Y, env)
+			if ok1 && ok2 {
+				return l + r, true
+			}
+		}
+	case *ast.SelectorExpr:
+		if id, ok := x.X.(*ast.Ident); ok {
+			if v, ok := env[id.Name]; ok {
+				if m, ok := v.(map[string]string); ok {
+					if s, ok := m[x.Sel.Name]; ok {
+						return s, true
+					}
+				}
+			}
+		}
+	}
+	return "", false
+}
+
+func parsePublic(fset *token.FileSet, dir string) map[string]bool {
+	public := map[string]bool{}
+	files, _ := filepath.Glob(filepath.Join(dir, "auth*.go"))
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		pf, err := parser.ParseFile(fset, f, nil, 0)
+		if err != nil {
+			continue
+		}
+		for _, d := range pf.Decls {
+			gd, ok := d.(*ast.GenDecl)
+			if !ok || gd.Tok != token.VAR {
+				continue
+			}
+			for _, spec := range gd.Specs {
+				vs, ok := spec.(*ast.ValueSpec)
+				if !ok {
+					continue
+				}
+				for i, n := range vs.Names {
+					if n.Name != "publicAPIPaths" || i >= len(vs.Values) {
+						continue
+					}
+					cl, ok := vs.Values[i].(*ast.CompositeLit)
+					if !ok {
+						continue
+					}
+					for _, el := range cl.Elts {
+						if kv, ok := el.(*ast.KeyValueExpr); ok {
+							if bl, ok := kv.Key.(*ast.BasicLit); ok && bl.Kind == token.STRING {
+								public[strings.Trim(bl.Value, `"`)] = true
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	return public
+}

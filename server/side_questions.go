@@ -270,21 +270,6 @@ func (s *Server) sideParent(w http.ResponseWriter, r *http.Request, kind string)
 	return p, true
 }
 
-func (s *Server) registerSideRoutes(mux *http.ServeMux) {
-	for _, route := range []struct{ path, kind string }{{"/api/conversations/{id}", "conversation"}, {"/api/tasks/{id}/chat", "main"}, {"/api/tasks/{id}/intents/{iid}", "worker"}} {
-		for _, method := range []string{"GET", "POST", "DELETE"} {
-			mux.HandleFunc(method+" "+route.path+"/side-questions", func(w http.ResponseWriter, r *http.Request) {
-				p, ok := s.sideParent(w, r, route.kind)
-				if ok {
-					s.handleSideQuestions(w, r, p)
-				}
-			})
-		}
-	}
-	mux.HandleFunc("GET /api/side-questions/{requestID}/events", s.sideEvents)
-	mux.HandleFunc("POST /api/side-questions/{requestID}/cancel", s.cancelSideRequest)
-}
-
 func (s *Server) handleSideQuestions(w http.ResponseWriter, r *http.Request, p sidequestion.Parent) {
 	key := p.Key()
 	if r.Method == "DELETE" {
