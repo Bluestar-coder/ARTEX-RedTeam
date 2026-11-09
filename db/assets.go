@@ -1478,66 +1478,90 @@ func scanTypeCounts(rows *sql.Rows) (map[string]int, error) {
 func scanAssets(rows *sql.Rows) ([]*Asset, error) {
 	var out []*Asset
 	for rows.Next() {
-		a := &Asset{}
-		var taskIDsRaw, boundDomainsRaw, openPortsRaw, recordValueRaw, techsRaw, authRaw, paramsRaw, extraRaw []byte
-		var port, statusCode sql.NullInt64
-		var contentLength sql.NullInt64
-		var companyID sql.NullInt64
-		if err := rows.Scan(
-			&a.ID, &a.Type, &companyID, &taskIDsRaw,
-			&a.Domain, &a.RootDomain, &a.IP, &a.CSegment, &port,
-			&a.ICP, &boundDomainsRaw, &openPortsRaw, &a.RecordType,
-			&recordValueRaw, &a.BundleID, &a.AppName,
-			&a.Category, &a.AppDescription, &a.AppICP,
-			&a.URL, &a.ServiceType, &a.ServiceName,
-			&a.FaviconMMH3, &statusCode, &contentLength,
-			&a.PageTitle, &techsRaw, &authRaw,
-			&a.Method, &paramsRaw, &extraRaw, &a.Source, &a.ObservedAt, &a.LastSeen,
-		); err != nil {
+		a, err := scanAsset(rows)
+		if err != nil {
 			return nil, err
-		}
-		if companyID.Valid {
-			cid := companyID.Int64
-			a.CompanyID = &cid
-		}
-		if port.Valid {
-			p := int(port.Int64)
-			a.Port = &p
-		}
-		if statusCode.Valid {
-			sc := int(statusCode.Int64)
-			a.StatusCode = &sc
-		}
-		if contentLength.Valid {
-			cl := contentLength.Int64
-			a.ContentLength = &cl
-		}
-		// parse arrays
-		if len(taskIDsRaw) > 0 {
-			_ = json.Unmarshal(taskIDsRaw, &a.TaskIDs)
-		}
-		if len(boundDomainsRaw) > 0 {
-			_ = json.Unmarshal(boundDomainsRaw, &a.BoundDomains)
-		}
-		if len(openPortsRaw) > 0 {
-			_ = json.Unmarshal(openPortsRaw, &a.OpenPorts)
-		}
-		if len(recordValueRaw) > 0 {
-			_ = json.Unmarshal(recordValueRaw, &a.RecordValue)
-		}
-		if len(techsRaw) > 0 {
-			_ = json.Unmarshal(techsRaw, &a.Technologies)
-		}
-		if len(authRaw) > 0 {
-			_ = json.Unmarshal(authRaw, &a.Auth)
-		}
-		if len(paramsRaw) > 0 {
-			_ = json.Unmarshal(paramsRaw, &a.Params)
-		}
-		if len(extraRaw) > 0 {
-			_ = json.Unmarshal(extraRaw, &a.Extra)
 		}
 		out = append(out, a)
 	}
 	return out, rows.Err()
+}
+
+// scanAsset scans exactly one wide asset row.
+func scanAsset(rows *sql.Rows) (*Asset, error) {
+	a := &Asset{}
+	var taskIDsRaw, boundDomainsRaw, openPortsRaw, recordValueRaw, techsRaw, authRaw, paramsRaw, extraRaw []byte
+	var port, statusCode sql.NullInt64
+	var contentLength sql.NullInt64
+	var companyID sql.NullInt64
+	if err := rows.Scan(
+		&a.ID, &a.Type, &companyID, &taskIDsRaw,
+		&a.Domain, &a.RootDomain, &a.IP, &a.CSegment, &port,
+		&a.ICP, &boundDomainsRaw, &openPortsRaw, &a.RecordType,
+		&recordValueRaw, &a.BundleID, &a.AppName,
+		&a.Category, &a.AppDescription, &a.AppICP,
+		&a.URL, &a.ServiceType, &a.ServiceName,
+		&a.FaviconMMH3, &statusCode, &contentLength,
+		&a.PageTitle, &techsRaw, &authRaw,
+		&a.Method, &paramsRaw, &extraRaw, &a.Source, &a.ObservedAt, &a.LastSeen,
+	); err != nil {
+		return nil, err
+	}
+	if companyID.Valid {
+		cid := companyID.Int64
+		a.CompanyID = &cid
+	}
+	if port.Valid {
+		p := int(port.Int64)
+		a.Port = &p
+	}
+	if statusCode.Valid {
+		sc := int(statusCode.Int64)
+		a.StatusCode = &sc
+	}
+	if contentLength.Valid {
+		cl := contentLength.Int64
+		a.ContentLength = &cl
+	}
+	if len(taskIDsRaw) > 0 {
+		_ = json.Unmarshal(taskIDsRaw, &a.TaskIDs)
+	}
+	if len(boundDomainsRaw) > 0 {
+		_ = json.Unmarshal(boundDomainsRaw, &a.BoundDomains)
+	}
+	if len(openPortsRaw) > 0 {
+		_ = json.Unmarshal(openPortsRaw, &a.OpenPorts)
+	}
+	if len(recordValueRaw) > 0 {
+		_ = json.Unmarshal(recordValueRaw, &a.RecordValue)
+	}
+	if len(techsRaw) > 0 {
+		_ = json.Unmarshal(techsRaw, &a.Technologies)
+	}
+	if len(authRaw) > 0 {
+		_ = json.Unmarshal(authRaw, &a.Auth)
+	}
+	if len(paramsRaw) > 0 {
+		_ = json.Unmarshal(paramsRaw, &a.Params)
+	}
+	if len(extraRaw) > 0 {
+		_ = json.Unmarshal(extraRaw, &a.Extra)
+	}
+	return a, nil
+}
+
+// ListHTTPServicesForJS returns alive HTTP service assets (2xx/3xx) for static
+// front-end JS analysis, newest first. Scope filtering is the caller's job.
+func (s *AssetStore) ListHTTPServicesForJS(limit int) ([]*Asset, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	return queryRows(s.db, assetSelectCols+`
+WHERE type='service' AND service_type='http' AND COALESCE(url,'') <> ''
+  AND status_code BETWEEN 200 AND 399
+ORDER BY last_seen DESC, id DESC
+LIMIT $1`, []any{limit}, scanAsset)
 }
