@@ -20,6 +20,7 @@ func ConfigFromEnv() Config {
 		CertSpotterURL:   env("RECON_CT_CERTSPOTTER_URL", "https://api.certspotter.com/v1/issuances"),
 		CertSpotterToken: env("RECON_CT_CERTSPOTTER_TOKEN", ""),
 		Wordlist:         splitCSV(env("RECON_WORDLIST", "")),
+		Dynamic:          DynamicConfigFromEnv(),
 		FOFA: FOFAConfig{
 			Enabled:    envBool("RECON_FOFA_ENABLED", false),
 			BaseURL:    env("RECON_FOFA_URL", "https://fofa.info/api/v1/search/all"),

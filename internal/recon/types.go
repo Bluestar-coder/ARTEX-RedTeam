@@ -19,6 +19,7 @@ const (
 	TypeSubdomain  RecordType = "subdomain"
 	TypeIP         RecordType = "ip"
 	TypeService    RecordType = "service"
+	TypeInterface  RecordType = "interface"
 )
 
 // Record is the standardized output of every provider. Callers persist it into
