@@ -11,11 +11,15 @@ import (
 // reconnaissance works out of the box with the active provider only.
 func ConfigFromEnv() Config {
 	cfg := Config{
-		Enabled:     splitCSV(env("RECON_ENABLED", "")),
-		Concurrency: envInt("RECON_CONCURRENCY", 10),
-		HTTPTimeout: time.Duration(envInt("RECON_TIMEOUT_SEC", 10)) * time.Second,
-		CTURL:       env("RECON_CT_URL", "https://crt.sh"),
-		Wordlist:    splitCSV(env("RECON_WORDLIST", "")),
+		Enabled:          splitCSV(env("RECON_ENABLED", "")),
+		Concurrency:      envInt("RECON_CONCURRENCY", 10),
+		HTTPTimeout:      time.Duration(envInt("RECON_TIMEOUT_SEC", 10)) * time.Second,
+		CTURL:            env("RECON_CT_URL", "https://crt.sh"),
+		CTBackends:       splitCSV(env("RECON_CT_BACKENDS", "")),
+		CTNameURL:        env("RECON_CT_CRTNAME_URL", "https://crt.name/v1/search"),
+		CertSpotterURL:   env("RECON_CT_CERTSPOTTER_URL", "https://api.certspotter.com/v1/issuances"),
+		CertSpotterToken: env("RECON_CT_CERTSPOTTER_TOKEN", ""),
+		Wordlist:         splitCSV(env("RECON_WORDLIST", "")),
 		FOFA: FOFAConfig{
 			Enabled:    envBool("RECON_FOFA_ENABLED", false),
 			BaseURL:    env("RECON_FOFA_URL", "https://fofa.info/api/v1/search/all"),

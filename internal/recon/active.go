@@ -3,12 +3,10 @@ package recon
 import (
 	"context"
 	"crypto/tls"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
-	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -21,8 +19,8 @@ import (
 // request is issued.
 type ActiveProvider struct {
 	client      *http.Client
-	ctClient    *http.Client // crt.sh can be slow; separate longer timeout
-	ctURL       string
+	ctClient    *http.Client // CT queries can be slow; separate longer timeout
+	ctBackends  []CTBackend
 	wordlist    []string
 	concurrency int
 	timeout     time.Duration
@@ -59,16 +57,13 @@ func NewActiveProvider(cfg Config, client *http.Client) *ActiveProvider {
 	p := &ActiveProvider{
 		client:      client,
 		ctClient:    &http.Client{Timeout: 45 * time.Second},
-		ctURL:       strings.TrimRight(cfg.CTURL, "/"),
+		ctBackends:  CTBackendDefs(cfg, &http.Client{Timeout: 45 * time.Second}),
 		wordlist:    append([]string(nil), cfg.Wordlist...),
 		concurrency: concurrency,
 		timeout:     timeout,
 	}
 	if p.client == nil {
 		p.client = newProbeClient(timeout)
-	}
-	if p.ctURL == "" {
-		p.ctURL = "https://crt.sh"
 	}
 	return p
 }
@@ -108,12 +103,18 @@ func (p *ActiveProvider) Run(ctx context.Context, req Request) ([]Record, error)
 
 	candidates := map[string]string{seed: "active:seed"}
 
-	// 1) Certificate transparency.
-	if names, err := p.crtNames(ctx, seed); err != nil {
-		logProviderf(p.Name(), "crt.sh 枚举失败（降级，继续用内置字典）: %v", err)
+	// 1) Certificate transparency (backend order is configurable; failures fall
+	// through to the next backend, and all-failed falls back to the dictionary).
+	ctFirst := map[string]time.Time{}
+	if names, backend, err := p.enumerateCT(ctx, seed); err != nil {
+		logProviderf(p.Name(), "所有 CT 后端均失败（降级，继续用内置字典）: %v", err)
 	} else {
-		for _, name := range names {
-			p.addCandidate(candidates, req.Scope, name, "active:ct", now, &out)
+		src := "active:ct:" + backend
+		for _, n := range names {
+			if !n.FirstSeen.IsZero() {
+				ctFirst[n.Name] = n.FirstSeen
+			}
+			p.addCandidate(candidates, req.Scope, n.Name, src, now, &out)
 		}
 	}
 
@@ -127,10 +128,15 @@ func (p *ActiveProvider) Run(ctx context.Context, req Request) ([]Record, error)
 	type probeJob struct {
 		host   string
 		source string
+		extra  map[string]any
 	}
 	jobs := make([]probeJob, 0, len(candidates))
 	for host, src := range candidates {
-		jobs = append(jobs, probeJob{host: host, source: src})
+		job := probeJob{host: host, source: src}
+		if first, ok := ctFirst[host]; ok {
+			job.extra = map[string]any{"ct_first_seen": first.UTC().Format(time.RFC3339)}
+		}
+		jobs = append(jobs, job)
 	}
 	sort.Slice(jobs, func(i, j int) bool { return jobs[i].host < jobs[j].host })
 
@@ -161,7 +167,7 @@ func (p *ActiveProvider) Run(ctx context.Context, req Request) ([]Record, error)
 				out = append(out, Record{
 					Type: TypeSubdomain, Value: job.host, Parent: seed,
 					Source: job.source, ObservedAt: now,
-					RawRef: "enumerate:" + job.source,
+					RawRef: "enumerate:" + job.source, Extra: job.extra,
 				})
 			}
 			if alive {
@@ -203,48 +209,25 @@ func (p *ActiveProvider) addCandidate(candidates map[string]string, scope Scope,
 	}
 }
 
-// crtNames queries certificate transparency logs (crt.sh compatible JSON).
-func (p *ActiveProvider) crtNames(ctx context.Context, seed string) ([]string, error) {
-	u := p.ctURL + "/?q=%25." + url.QueryEscape(seed) + "&output=json"
-	ctx, cancel := context.WithTimeout(ctx, p.timeout*3)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return nil, err
+// enumerateCT tries backends in configured order. It returns the first
+// successful result together with the backend name; every failure is logged and
+// the next backend is attempted.
+func (p *ActiveProvider) enumerateCT(ctx context.Context, seed string) ([]CTName, string, error) {
+	if len(p.ctBackends) == 0 {
+		return nil, "", fmt.Errorf("没有可用的 CT 后端")
 	}
-	req.Header.Set("User-Agent", "artex-redteam-recon/1.0")
-	resp, err := p.ctClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("crt.sh HTTP %d", resp.StatusCode)
-	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
-	if err != nil {
-		return nil, err
-	}
-	var entries []struct {
-		NameValue  string `json:"name_value"`
-		CommonName string `json:"common_name"`
-	}
-	if err := json.Unmarshal(body, &entries); err != nil {
-		return nil, fmt.Errorf("crt.sh JSON: %w", err)
-	}
-	seen := map[string]bool{}
-	var names []string
-	for _, e := range entries {
-		for _, part := range strings.Split(e.NameValue+"\n"+e.CommonName, "\n") {
-			h := HostOf(part)
-			if h == "" || seen[h] {
-				continue
-			}
-			seen[h] = true
-			names = append(names, h)
+	var errs []string
+	for _, backend := range p.ctBackends {
+		names, err := backend.Lookup(ctx, seed)
+		if err != nil {
+			logProviderf(p.Name(), "CT 后端 %s 失败，切换下一个: %v", backend.Name(), err)
+			errs = append(errs, backend.Name()+": "+err.Error())
+			continue
 		}
+		logProviderf(p.Name(), "CT 后端 %s 返回 %d 条名称", backend.Name(), len(names))
+		return names, backend.Name(), nil
 	}
-	return names, nil
+	return nil, "", fmt.Errorf("%s", strings.Join(errs, "; "))
 }
 
 // probe tries HTTPS then HTTP and extracts status/title/favicon/technologies.

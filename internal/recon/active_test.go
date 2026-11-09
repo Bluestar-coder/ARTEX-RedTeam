@@ -33,7 +33,7 @@ func TestActiveProviderScopeBeforeProbe(t *testing.T) {
 		})
 	}))
 	defer ct.Close()
-	cfg := Config{Concurrency: 2, HTTPTimeout: time.Second, CTURL: ct.URL, Wordlist: []string{"www", "mail"}}
+	cfg := Config{Concurrency: 2, HTTPTimeout: time.Second, CTURL: ct.URL, CTBackends: []string{"crt.sh"}, Wordlist: []string{"www", "mail"}}
 	p := NewActiveProvider(cfg, ct.Client())
 	p.probeFn = probe
 	p.resolveFn = func(context.Context, string) []string { return nil }
@@ -112,7 +112,7 @@ func TestActiveProviderConcurrencyCap(t *testing.T) {
 				atomic.AddInt32(&inFlight, -1)
 				return probeResult{}, false
 			}
-			cfg := Config{Concurrency: limit, HTTPTimeout: time.Second, CTURL: ct.URL}
+			cfg := Config{Concurrency: limit, HTTPTimeout: time.Second, CTURL: ct.URL, CTBackends: []string{"crt.sh"}}
 			p := NewActiveProvider(cfg, ct.Client())
 			p.probeFn = probe
 			p.resolveFn = func(context.Context, string) []string { return nil }
@@ -129,5 +129,45 @@ func TestActiveProviderConcurrencyCap(t *testing.T) {
 			}
 			t.Logf("limit=%d peak=%d probes=40", limit, peak)
 		})
+	}
+}
+
+func TestActiveFallsBackToDictionaryWhenAllCTBackendsFail(t *testing.T) {
+	probed := map[string]bool{}
+	var mu sync.Mutex
+	fail := &fakeCT{name: "a", err: context.DeadlineExceeded}
+	fail2 := &fakeCT{name: "b", err: context.DeadlineExceeded}
+	p := &ActiveProvider{
+		ctBackends:  []CTBackend{fail, fail2},
+		wordlist:    []string{"www"},
+		concurrency: 1,
+		timeout:     time.Second,
+		probeFn: func(_ context.Context, host string) (probeResult, bool) {
+			mu.Lock()
+			probed[host] = true
+			mu.Unlock()
+			return probeResult{RawRef: "http://" + host}, true
+		},
+		resolveFn: func(context.Context, string) []string { return nil },
+	}
+	scope, _ := NewScope("example.com", nil, nil)
+	res, err := p.Run(context.Background(), Request{Seed: "example.com", Scope: scope, Now: time.Now().UTC()})
+	if err != nil {
+		t.Fatalf("all-CT-fail must fall back to dictionary, not error: %v", err)
+	}
+	if !probed["www.example.com"] {
+		t.Fatalf("dictionary candidate not probed: %v", probed)
+	}
+	foundSub, foundService := false, false
+	for _, r := range res {
+		if r.Type == TypeSubdomain && r.Value == "www.example.com" {
+			foundSub = true
+		}
+		if r.Type == TypeService {
+			foundService = true
+		}
+	}
+	if !foundSub || !foundService {
+		t.Fatalf("fallback records missing: %+v", res)
 	}
 }
