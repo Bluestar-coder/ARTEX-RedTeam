@@ -110,6 +110,7 @@ func (f *Fetcher) Scan(ctx context.Context, targets []Target) Aggregate {
 		ifaces: map[string]*Interface{}, sens: map[string]*Sensitive{},
 		obf: map[string]bool{}, files: map[string]bool{},
 	}
+	filesByHost := map[string][]FileInput{}
 	for _, t := range targets {
 		if t.PageURL == "" || t.Host == "" {
 			continue
@@ -196,6 +197,9 @@ func (f *Fetcher) Scan(ctx context.Context, targets []Target) Aggregate {
 				res := Extract(t.Host, t.PageURL, scriptURL, string(code))
 				mu.Lock()
 				defer mu.Unlock()
+				filesByHost[t.Host] = append(filesByHost[t.Host], FileInput{
+					Host: t.Host, PageURL: t.PageURL, ScriptURL: scriptURL, Code: string(code),
+				})
 				agg.Bytes += int64(len(code))
 				agg.JSFiles++
 				if !jb.inline {
@@ -234,6 +238,37 @@ func (f *Fetcher) Scan(ctx context.Context, targets []Target) Aggregate {
 			}(jb)
 		}
 		wg.Wait()
+	}
+	// AST pass: parse each host's collected JS once, propagate constants across
+	// files in that bundle, and merge with the regex results (regex stays as a
+	// conservative regression guard so accepted legacy paths can never vanish).
+	for host, files := range filesByHost {
+		a := AnalyzeFiles(files)
+		for _, pf := range a.ParseFails {
+			log.Printf("[jsintel] AST 解析失败（已回退正则结果）host=%s: %s", host, pf)
+		}
+		for _, it := range a.Interfaces {
+			key := it.Host + "|" + it.Method + "|" + strings.ToLower(it.Path)
+			if cur, ok := st.ifaces[key]; ok {
+				cur.Params = mergeStrings(cur.Params, it.Params)
+				cur.Tags = mergeStrings(cur.Tags, it.Tags)
+				cur.Sources = appendSources(cur.Sources, it.Sources...)
+				if confidenceRank(it.Confidence) > confidenceRank(cur.Confidence) {
+					cur.Confidence = it.Confidence
+					cur.Rule = it.Rule
+				}
+				continue
+			}
+			cp := it
+			st.ifaces[key] = &cp
+		}
+		for _, n := range a.Notes {
+			key := n.ScriptURL + "|" + n.Reason + "|" + n.Detail
+			if !st.obf[key] {
+				st.obf[key] = true
+				agg.Obfuscations = append(agg.Obfuscations, n)
+			}
+		}
 	}
 	for _, it := range st.ifaces {
 		agg.Interfaces = append(agg.Interfaces, *it)

@@ -46,7 +46,8 @@ type Sensitive struct {
 // Obfuscation flags code that needs manual review; no deobfuscation is attempted.
 type Obfuscation struct {
 	Host      string    `json:"host"`
-	Reason    string    `json:"reason"` // hex_identifiers / dynamic_eval / base64_decode / path_concatenation
+	Reason    string    `json:"reason"`           // hex_identifiers / dynamic_eval / base64_decode / path_concatenation / needs_manual
+	Detail    string    `json:"detail,omitempty"` // needs_manual: runtime_base_url / exceeded_hops / dynamic_construction ...
 	ScriptURL string    `json:"script_url"`
 	Source    SourceRef `json:"source"`
 }
