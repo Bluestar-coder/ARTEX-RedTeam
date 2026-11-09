@@ -113,7 +113,8 @@ func (t *ToolSet) extractJS() actool.CoreTool {
 					"extract_kind": "js_interface",
 					"host":         itf.Host, "method": itf.Method, "path": itf.Path,
 					"params": itf.Params, "tags": itf.Tags, "rule": itf.Rule,
-					"sources": itf.Sources, "source_count": len(itf.Sources), "observed_at": now,
+					"extract_confidence": string(itf.Confidence),
+					"sources":            itf.Sources, "source_count": len(itf.Sources), "observed_at": now,
 				}
 				if err := upsert("jsif|"+itf.Host+"|"+itf.Method+"|"+strings.ToLower(itf.Path), payload, anchorsByHost[itf.Host]); err != nil {
 					return actool.Errorf("写入接口 fact 失败: " + err.Error()), nil
@@ -169,13 +170,14 @@ func firstSnippet(refs []jsintel.SourceRef) string {
 // planner can turn into intents.
 func (t *ToolSet) jsIntelOverview(facts []*db.Node) map[string]any {
 	type ifaceFact struct {
-		ID      int64
-		Host    string
-		Method  string
-		Path    string
-		Params  []any
-		Tags    []any
-		Sources int
+		ID         int64
+		Host       string
+		Method     string
+		Path       string
+		Params     []any
+		Tags       []any
+		Sources    int
+		Confidence string
 	}
 	var ifaces []ifaceFact
 	byHost := map[string]int{}
@@ -193,6 +195,7 @@ func (t *ToolSet) jsIntelOverview(facts []*db.Node) map[string]any {
 			f := ifaceFact{ID: n.ID, Host: host}
 			f.Method, _ = p["method"].(string)
 			f.Path, _ = p["path"].(string)
+			f.Confidence, _ = p["extract_confidence"].(string)
 			f.Params, _ = p["params"].([]any)
 			f.Tags, _ = p["tags"].([]any)
 			switch v := p["source_count"].(type) {
@@ -209,7 +212,21 @@ func (t *ToolSet) jsIntelOverview(facts []*db.Node) map[string]any {
 	if len(ifaces) == 0 && sensitiveTotal == 0 && obfuscatedTotal == 0 {
 		return nil
 	}
+	confRank := func(c string) int {
+		switch c {
+		case "high":
+			return 3
+		case "medium":
+			return 2
+		default:
+			return 1
+		}
+	}
 	sort.Slice(ifaces, func(i, j int) bool {
+		ri, rj := confRank(ifaces[i].Confidence), confRank(ifaces[j].Confidence)
+		if ri != rj {
+			return ri > rj // top_interfaces prefers high confidence
+		}
 		si := len(ifaces[i].Params)*3 + len(ifaces[i].Tags)*2 + ifaces[i].Sources
 		sj := len(ifaces[j].Params)*3 + len(ifaces[j].Tags)*2 + ifaces[j].Sources
 		if si != sj {
@@ -225,7 +242,8 @@ func (t *ToolSet) jsIntelOverview(facts []*db.Node) map[string]any {
 		top = append(top, map[string]any{
 			"fact_id": f.ID, "host": f.Host, "method": f.Method, "path": f.Path,
 			"params": f.Params, "tags": f.Tags, "source_count": f.Sources,
-			"note": "node_detail(fact_id) 查看原始片段与出处",
+			"confidence": f.Confidence,
+			"note":       "node_detail(fact_id) 查看原始片段与出处",
 		})
 	}
 	// Sensitive/obfuscated top entries are useful for prioritisation; keep ids only.
@@ -242,8 +260,17 @@ func (t *ToolSet) jsIntelOverview(facts []*db.Node) map[string]any {
 			"fact_id": n.ID, "kind": p["kind"], "rule": p["rule"], "host": p["host"], "value": p["value"],
 		})
 	}
+	byConf := map[string]int{}
+	for _, f := range ifaces {
+		c := f.Confidence
+		if c == "" {
+			c = "low"
+		}
+		byConf[c]++
+	}
 	out := map[string]any{
 		"total_interfaces":   len(ifaces),
+		"by_confidence":      byConf,
 		"interfaces_by_host": byHost,
 		"sensitive_total":    sensitiveTotal,
 		"obfuscated_total":   obfuscatedTotal,
