@@ -463,11 +463,12 @@ func analyzeCall(af *astFile, call *js.CallExpr, consts map[string]constEntry, b
 			add(args[0].Value, verb, "ast_axios", false)
 		}
 	case strings.HasSuffix(callee, ".open") && len(args) >= 2:
-		method := "unknown"
-		if v, _, _, _ := evalDesc(toDesc(args[0].Value), consts, bases, 0); v != "" {
-			method = strings.ToUpper(v)
+		// Only xhr.open("METHOD", url); do NOT confuse window.open(url, "_blank").
+		v, _, _, _ := evalDesc(toDesc(args[0].Value), consts, bases, 0)
+		method := strings.ToUpper(v)
+		if validVerb(method) {
+			add(args[1].Value, method, "ast_xhr", false)
 		}
-		add(args[1].Value, method, "ast_xhr", false)
 	case strings.HasPrefix(callee, "navigator.sendBeacon"):
 		add(args[0].Value, "POST", "ast_sendbeacon", false)
 	case callee == "$.get" || callee == "jQuery.get" || callee == "$.getJSON" || callee == "jQuery.getJSON":
