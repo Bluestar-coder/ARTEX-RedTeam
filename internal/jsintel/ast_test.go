@@ -3,6 +3,7 @@ package jsintel
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func analyzeOne(t *testing.T, code string) Analysis {
@@ -120,5 +121,24 @@ func TestASTOptionsVariable(t *testing.T) {
 	}
 	if it := findASTIface(a, "PUT", "/api/y"); it == nil {
 		t.Fatalf("jquery ajax config variable missing: %+v", a.Interfaces)
+	}
+}
+
+func TestASTParse5MiBWithinBudget(t *testing.T) {
+	code := "const DATA=[\"" + strings.Repeat("x", (5<<20)-64) + "\"]; fetch(\"/api/\"+DATA.length);"
+	start := time.Now()
+	a := AnalyzeFiles([]FileInput{{Host: "app.example.com", PageURL: "https://app.example.com/", ScriptURL: "https://app.example.com/big.js", Code: code}})
+	if d := time.Since(start); d > 2*time.Second {
+		t.Fatalf("5MiB AST analysis took %s, budget 2s", d)
+	}
+	if len(a.Interfaces) != 1 {
+		t.Fatalf("expected synthetic interface: %+v", a.Interfaces)
+	}
+}
+
+func TestASTNoFalsePositiveForRoutesAndWindowOpen(t *testing.T) {
+	a := analyzeOne(t, `const routes = [{source: "/api/internal", destination: "/x"}]; window.open("/api/popup", "_blank"); document.querySelector("/api/selector");`)
+	if len(a.Interfaces) != 0 {
+		t.Fatalf("route table/window.open must not be interfaces: %+v", a.Interfaces)
 	}
 }
