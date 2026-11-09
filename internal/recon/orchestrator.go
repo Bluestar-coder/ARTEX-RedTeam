@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -136,6 +137,13 @@ func normalizeRecord(rec Record, provider string, now time.Time) (Record, string
 		} else {
 			rec.Parent = HostOf(rec.Parent)
 		}
+	case TypeInterface:
+		u, err := url.Parse(rec.Value)
+		if err != nil || u.Hostname() == "" || (u.Scheme != "http" && u.Scheme != "https") {
+			return rec, "invalid interface URL"
+		}
+		rec.Parent = u.Hostname()
+		rec.Value = u.Scheme + "://" + u.Hostname() + u.Path
 	case TypeIP:
 		ip := strings.TrimSpace(rec.Value)
 		if !validIP(ip) {
@@ -155,7 +163,7 @@ func normalizeRecord(rec Record, provider string, now time.Time) (Record, string
 
 func recordInScope(scope Scope, rec Record) (bool, string) {
 	switch rec.Type {
-	case TypeRootDomain, TypeSubdomain, TypeService:
+	case TypeRootDomain, TypeSubdomain, TypeService, TypeInterface:
 		return scope.Allow(rec.Value)
 	case TypeIP:
 		if rec.Parent != "" {

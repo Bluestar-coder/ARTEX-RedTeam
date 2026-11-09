@@ -73,6 +73,7 @@ type Config struct {
 	CertSpotterToken string        // optional Cert Spotter API token
 	Wordlist         []string      // builtin dictionary suffixes; default DefaultWordlist
 	FOFA             FOFAConfig
+	Dynamic          DynamicConfig // runtime browser capture; default OFF
 }
 
 // DefaultWordlist is the small built-in dictionary used by the active provider
@@ -114,6 +115,9 @@ func DefaultRegistry(cfg Config, client *http.Client) *Registry {
 	}
 	if cfg.FOFA.Enabled {
 		enabled = append(enabled, ProviderFOFA)
+	}
+	if cfg.Dynamic.Enabled {
+		enabled = append(enabled, ProviderDynamic)
 	}
 	on := func(name string) bool {
 		for _, e := range enabled {
