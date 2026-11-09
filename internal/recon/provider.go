@@ -62,19 +62,30 @@ func (r *Registry) Names() []string {
 // from ARTEX_REDTEAM_RECON_* environment variables (see ConfigFromEnv); zero
 // values are replaced by conservative defaults.
 type Config struct {
-	Enabled         []string      // provider names; default ["active"]
-	Concurrency     int           // active probe workers; default 10, max 32
-	HTTPTimeout     time.Duration // per-request timeout; default 10s
-	ProviderTimeout time.Duration // whole-provider timeout; default 3m
-	CTURL           string        // certificate transparency endpoint; default https://crt.sh
-	Wordlist        []string      // builtin dictionary suffixes; default DefaultWordlist
-	FOFA            FOFAConfig
+	Enabled          []string      // provider names; default ["active"]
+	Concurrency      int           // active probe workers; default 10, max 32
+	HTTPTimeout      time.Duration // per-request timeout; default 10s
+	ProviderTimeout  time.Duration // whole-provider timeout; default 3m
+	CTURL            string        // legacy crt.sh endpoint override
+	CTBackends       []string      // ordered CT backends; default "crt.name,crt.sh,certspotter"
+	CTNameURL        string        // crt.name endpoint
+	CertSpotterURL   string        // Cert Spotter endpoint
+	CertSpotterToken string        // optional Cert Spotter API token
+	Wordlist         []string      // builtin dictionary suffixes; default DefaultWordlist
+	FOFA             FOFAConfig
 }
 
 // DefaultWordlist is the small built-in dictionary used by the active provider
 // in addition to certificate transparency results. Deliberately tiny: M1 is not
 // a brute-force product.
 var DefaultWordlist = []string{"www", "mail", "api", "admin", "dev", "test", "vpn", "git", "cloud", "portal"}
+
+// defaultCTBackends is the preference order chosen from the M2 benchmark
+// (scripts/recon-ct-bench): certspotter 10/10 (60 ms), crt.sh 9/10 but 10-100x
+// more names (and 45 s tail latency), crt.name 10/10 but 0 names from CI egress.
+// Reliability/fast path first; set ARTEX_REDTEAM_RECON_CT_BACKENDS=crt.sh,... to
+// prefer coverage over latency.
+const defaultCTBackends = "certspotter,crt.sh,crt.name"
 
 // FOFAConfig configures the optional external intel provider (default OFF).
 type FOFAConfig struct {
