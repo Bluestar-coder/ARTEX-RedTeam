@@ -269,6 +269,27 @@ func Extract(host, pageURL, scriptURL, text string) Result {
 	}
 
 	// RULE_AXIOS_END
+	// RULE_SUFFIX_BEGIN
+	// Bare interface suffixes: even without fetch/axios, a quoted path ending in
+	// .json/.php/.do/.action is a candidate (low confidence).
+	for _, m := range reBareSuffix.FindAllStringSubmatchIndex(text, -1) {
+		raw := text[m[2]:m[3]]
+		if strings.Contains(raw, "{") {
+			continue
+		}
+		if strings.Contains(raw, "://") && hostOfValue(raw) != host {
+			continue
+		}
+		if !strings.HasPrefix(raw, "/") && !strings.HasPrefix(raw, host) && !strings.Contains(raw, "://") {
+			continue
+		}
+		c := buildIface(host, pageURL, scriptURL, text, raw, m[0], "bare_suffix", "")
+		c.method = "unknown"
+		c.confidence = ConfidenceLow
+		addIface(c)
+	}
+
+	// RULE_SUFFIX_END
 
 	seenSens := map[string]*Sensitive{}
 	addSens := func(s Sensitive) {
