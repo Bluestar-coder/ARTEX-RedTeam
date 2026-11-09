@@ -142,13 +142,27 @@ docker compose pull artex-redteam && docker compose up -d
 
 ### 方式三：下载预编译二进制（Releases）
 
-到 [Releases](https://github.com/Bluestar-coder/ARTEX-RedTeam/releases) 下载对应平台的 zip，解压后得到 `artex-redteam` + `start.sh`（Windows 为 `start.bat`）+ `skills/` + `config.example.json`：
+到 [Releases](https://github.com/Bluestar-coder/ARTEX-RedTeam/releases) 下载对应平台的 zip。**zip 解压后会多一层与包同名的目录**（如 `artex-redteam-0.4.3-linux-amd64/`），`artex-redteam`、`start.sh`（Windows 为 `start.bat`）、`skills/`、`config.example.json` 都在这一层里面，**必须先 `cd` 进去再执行后续命令**：
 
+> Release 同时提供旧名兼容包 `artex-<版本>-<平台>.zip`：它只给 v0.4.1 及更早客户端的一键更新使用，包内只有 `artex`/`artex.exe` 一个文件（没有 `skills/`、`start.sh`）。**手动安装/升级请用 `artex-redteam-*` 包。**
 > 需要其他平台或自定义构建时，可执行 `./build.sh --release` 在本地 `dist/` 生成压缩包（见方式五）。
 
+macOS / Linux（把示例里的版本与平台换成实际下载的文件名）：
+
 ```bash
-cp config.example.json config.json   # 填好 database 连接
-./start.sh                           # → http://localhost:8787
+unzip artex-redteam-0.4.3-linux-amd64.zip
+cd artex-redteam-0.4.3-linux-amd64          # ← 解压出来的一层目录
+cp config.example.json config.json          # 填好 database 连接
+./start.sh                                  # → http://localhost:8787
+```
+
+Windows（PowerShell；路径分隔符用 `\`）：
+
+```powershell
+Expand-Archive .\artex-redteam-0.4.3-windows-amd64.zip -DestinationPath .
+cd .\artex-redteam-0.4.3-windows-amd64      # ← 解压出来的一层目录
+Copy-Item config.example.json config.json   # 填好 database 连接
+.\start.bat                                 # → http://localhost:8787
 ```
 
 > 请用 `start.sh` / `start.bat` 启动，而不是直接跑 `./artex-redteam`。它是个守护脚本：程序退出后按退出码决定是否重新拉起，**页面上的[一键更新](#方式一页面一键更新推荐)靠它完成换装**。直接运行 `./artex-redteam` 时更新完就不会被拉起了。
@@ -168,7 +182,7 @@ CGO_ENABLED=0 go build -tags embedui -o artex-redteam ./cmd/artex-redteam
 
 ### 方式五：构建跨平台 Release 压缩包
 
-`build.sh` 会先构建并嵌入前端，再使用 Go linker 去除调试信息，并将发布文件压缩为 zip。Release 模式默认生成 Linux amd64/arm64、macOS amd64/arm64 和 Windows amd64 的 zip 包（每个平台同时产出 `artex-redteam-*` 新名包与 `artex-*` 旧名兼容包）：
+`build.sh` 会先构建并嵌入前端，再使用 Go linker 去除调试信息，并将发布文件压缩为 zip。Release 模式默认生成 Linux amd64/arm64、macOS amd64/arm64 和 Windows amd64 的 zip 包（每个平台同时产出 `artex-redteam-*` 新名包与 `artex-*` 旧名兼容包）。**每个 zip 内都有一层与包同名的目录**；旧名兼容包内只有旧名二进制，仅用于老客户端一键更新：
 
 ```bash
 ./build.sh --release
@@ -299,12 +313,31 @@ docker image prune -f                     # 清理旧镜像（可选）
 
 ### 方式四：预编译二进制（Releases）
 
-到 [Releases](https://github.com/Bluestar-coder/ARTEX-RedTeam/releases) 下载新版本 zip，停掉旧进程后覆盖 `artex-redteam` 与 `skills/`（保留你的 `config.json` 与数据目录），重启即可：
+到 [Releases](https://github.com/Bluestar-coder/ARTEX-RedTeam/releases) 下载新版本 zip，停掉旧进程后覆盖 `artex-redteam` 与 `skills/`（保留你的 `config.json` 与数据目录），重启即可。**zip 解压后会多一层与包同名的目录，先 `cd` 进去再拷贝**（`<旧安装目录>` 换成你原来的运行目录）：
+
+macOS / Linux（把示例里的版本与平台换成实际下载的文件名）：
 
 ```bash
-cp -r <解压目录>/skills ./ && cp <解压目录>/artex-redteam ./
+unzip artex-redteam-0.4.3-linux-amd64.zip
+cd artex-redteam-0.4.3-linux-amd64          # ← 解压出来的一层目录
+cp -r skills/* <旧安装目录>/skills/
+cp artex-redteam <旧安装目录>/
+cd <旧安装目录>
 ./start.sh
 ```
+
+Windows（PowerShell；路径分隔符用 `\`）：
+
+```powershell
+Expand-Archive .\artex-redteam-0.4.3-windows-amd64.zip -DestinationPath .
+cd .\artex-redteam-0.4.3-windows-amd64      # ← 解压出来的一层目录
+Copy-Item -Recurse -Force .\skills\* <旧安装目录>\skills\
+Copy-Item -Force .\artex-redteam.exe <旧安装目录>\
+cd <旧安装目录>
+.\start.bat
+```
+
+> 旧名兼容包 `artex-<版本>-<平台>.zip` 内只有旧名二进制（没有 `skills/`、`start.sh`），只用于老客户端的一键更新，**不要拿它做手动升级**。
 
 ### 方式五：从源码编译
 
