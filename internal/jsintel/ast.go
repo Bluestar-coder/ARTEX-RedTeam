@@ -446,7 +446,7 @@ func analyzeCall(af *astFile, call *js.CallExpr, consts map[string]constEntry, b
 		}
 		d := toDesc(urlExpr)
 		value, params, folded, unresolved := evalDesc(d, consts, bases, 0)
-		if value == "" || strings.HasPrefix(value, "{") || strings.Contains(value, "://") && hostOfValue(value) == "" {
+		if value == "" || strings.HasPrefix(value, "{") || !plausiblePath(value) || looksRegexLike(value) || strings.Contains(value, "://") && hostOfValue(value) == "" {
 			detail := "empty_or_unresolved"
 			if len(unresolved) > 0 {
 				detail = strings.Join(unresolved, ";")
@@ -602,4 +602,16 @@ func dedupeASTInterfaces(in []Interface) []Interface {
 		out = append(out, *seen[k])
 	}
 	return out
+}
+
+// plausiblePath keeps AST output to real paths/URLs; relative bare identifiers
+// are framework internals (e.g. fetch(o) where o is a URL object).
+func plausiblePath(v string) bool {
+	return strings.HasPrefix(v, "/") || strings.Contains(v, "://")
+}
+
+// looksRegexLike rejects regex source strings that occasionally flow through
+// variable folding (e.g. "[A-Za-z$_][0-9A-Za-z$_]*").
+func looksRegexLike(v string) bool {
+	return strings.ContainsAny(v, "[]*\\") || strings.Contains(v, "(?")
 }
