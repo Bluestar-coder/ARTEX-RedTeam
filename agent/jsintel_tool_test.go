@@ -111,3 +111,55 @@ const admin = "/admin/dashboard";
 	raw, _ := json.MarshalIndent(js, "", "  ")
 	t.Logf("graph_overview.js_intel:\n%s", raw)
 }
+
+func TestJSIntelOverviewBySource(t *testing.T) {
+	mk := func(payload map[string]any) *db.Node {
+		raw, _ := json.Marshal(payload)
+		return &db.Node{ID: 1, Payload: raw}
+	}
+	facts := []*db.Node{
+		mk(map[string]any{
+			"extract_kind": "js_interface", "host": "app.example", "method": "GET", "path": "/api/static",
+			"extract_confidence": "high", "params": []any{}, "tags": []any{}, "source_count": 1,
+			"sources": []any{map[string]any{"source": "static", "script_url": "https://app.example/a.js"}},
+		}),
+		mk(map[string]any{
+			"extract_kind": "js_interface", "host": "app.example", "method": "POST", "path": "/api/merged",
+			"extract_confidence": "high", "params": []any{"id"}, "tags": []any{}, "source_count": 2,
+			"sources": []any{
+				map[string]any{"source": "static", "script_url": "https://app.example/a.js"},
+				map[string]any{"source": "dynamic", "script_url": "https://app.example/"},
+			},
+		}),
+		mk(map[string]any{
+			"extract_kind": "js_interface", "host": "app.example", "method": "GET", "path": "/api/legacy",
+			"extract_confidence": "low", "params": []any{}, "tags": []any{}, "source_count": 1,
+			"sources": []any{map[string]any{"script_url": "https://app.example/old.js"}},
+		}),
+	}
+	ov := (&ToolSet{}).jsIntelOverview(facts)
+	if ov == nil {
+		t.Fatal("nil overview")
+	}
+	by, ok := ov["by_source"].(map[string]int)
+	if !ok {
+		t.Fatalf("by_source missing: %v", ov)
+	}
+	if by["static"] != 3 || by["dynamic"] != 1 {
+		t.Fatalf("by_source=%v want static=3 dynamic=1", by)
+	}
+	top, _ := ov["top_interfaces"].([]map[string]any)
+	foundMerged := false
+	for _, row := range top {
+		if row["path"] == "/api/merged" {
+			foundMerged = true
+			ev, _ := row["evidence_sources"].([]string)
+			if len(ev) != 2 {
+				t.Fatalf("merged evidence_sources=%v", ev)
+			}
+		}
+	}
+	if !foundMerged {
+		t.Fatalf("merged interface not in top: %v", top)
+	}
+}
