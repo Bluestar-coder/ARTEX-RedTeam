@@ -171,7 +171,7 @@ func Extract(host, pageURL, scriptURL, text string) Result {
 	// --- M3 rules: expression-based recovery (template strings, one-level
 	// constants, axios baseURL, config objects, bare suffixes). Still static.
 	consts := fileConstMap(text)
-	bases := axiosBaseURLs(text)
+	bases := axiosBaseURLs(text) // RULE_CONST_LINE
 	addEval := func(expr, method, rule string, start int, prefix string) (path string, conf Confidence) {
 		p, _, evalConf, unresolved, used := evalPathExpr(expr, consts, bases)
 		if !used || p == "" {
@@ -269,6 +269,35 @@ func Extract(host, pageURL, scriptURL, text string) Result {
 	}
 
 	// RULE_AXIOS_END
+	// RULE_CONFIG_BEGIN
+	// Config objects: {url: EXPR, method: "post"} (axios config / $.ajax / XHR wrapper).
+	for _, m := range reConfigURL.FindAllStringSubmatchIndex(text, -1) {
+		expr, end, ok := readValueExpr(text, m[1])
+		if !ok || expr == "" {
+			continue
+		}
+		lo := m[0] - 200
+		if lo < 0 {
+			lo = 0
+		}
+		hi := end + 300
+		if hi > len(text) {
+			hi = len(text)
+		}
+		method := "unknown"
+		if mm := reAjaxType.FindStringSubmatch(text[lo:hi]); len(mm) == 2 {
+			method = strings.ToUpper(mm[1])
+		}
+		rule := "config_object"
+		if strings.Contains(expr, "${") {
+			rule = "config_object_template"
+		} else if strings.Contains(expr, "+") {
+			rule = "config_object_fold"
+		}
+		addEval(expr, method, rule, m[0], "")
+	}
+
+	// RULE_CONFIG_END
 	// RULE_SUFFIX_BEGIN
 	// Bare interface suffixes: even without fetch/axios, a quoted path ending in
 	// .json/.php/.do/.action is a candidate (low confidence).
