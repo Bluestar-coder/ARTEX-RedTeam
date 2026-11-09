@@ -93,7 +93,7 @@ func TestDynamicCloudflareE2E(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := DynamicConfig{Enabled: true, Proxy: proxy.URL(), PageTimeout: 30 * time.Second, IdleWait: 6 * time.Second, HostTimeout: 2 * time.Minute, MaxPages: 1, MaxMemoryMB: 512, Concurrency: 1}
+	cfg := DynamicConfig{Enabled: true, Proxy: proxy.URL(), PageTimeout: 30 * time.Second, IdleWait: 3 * time.Second, HostTimeout: 5 * time.Minute, MaxPages: 10, MaxMemoryMB: 512, Concurrency: 1}
 	p := NewDynamicProvider(cfg)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
@@ -104,7 +104,7 @@ func TestDynamicCloudflareE2E(t *testing.T) {
 	if cap.Observed == 0 {
 		t.Fatalf("browser observed no requests: %+v", cap)
 	}
-	t.Logf("observed=%d xhr_fetch=%d blocked=%d proxy=%s", cap.Observed, len(cap.Records), len(cap.Blocked), cap.Proxy)
+	t.Logf("observed=%d xhr_fetch=%d blocked=%d pages=%d proxy=%s", cap.Observed, len(cap.Records), len(cap.Blocked), cap.Pages, cap.Proxy)
 	for _, r := range cap.Records {
 		t.Logf("DYN %s %s | params=%v query=%v headers=%v status=%v ct=%v", r.Extra["method"], r.Value, r.Extra["params"], r.Extra["query_params"], r.Extra["header_names"], r.Extra["status"], r.Extra["content_type"])
 		if host := r.Parent; host != "www.cloudflare.com" && !strings.HasSuffix(host, ".cloudflare.com") {
@@ -114,6 +114,10 @@ func TestDynamicCloudflareE2E(t *testing.T) {
 	if len(cap.Records) < 3 {
 		t.Fatalf("want >=3 real interfaces on cloudflare, got %d", len(cap.Records))
 	}
+	if cap.Pages < 3 {
+		t.Fatalf("want multi-page run (>=3 pages), got %d: %v", cap.Pages, cap.PagesVisited)
+	}
+	t.Logf("pages_visited=%v", cap.PagesVisited)
 	if len(cap.Blocked) == 0 {
 		t.Fatalf("expected blocked out-of-scope requests")
 	}
@@ -242,4 +246,101 @@ func TestDynamicKillCleanup(t *testing.T) {
 		t.Fatalf("residual Chrome processes after kill: %s", out)
 	}
 	t.Logf("killed chrome pid=%s; no residual artex-dynamic processes", pid)
+}
+
+func TestDynamicPageBudget(t *testing.T) {
+	if os.Getenv("DYNAMIC_E2E") != "1" {
+		t.Skip("set DYNAMIC_E2E=1 with Chrome installed to run browser budget test")
+	}
+	proxy := newLocalForwardProxy()
+	defer proxy.Close()
+	scope, _ := NewScope("www.cloudflare.com", nil, nil)
+	cfg := DynamicConfig{Enabled: true, Proxy: proxy.URL(), PageTimeout: 30 * time.Second, IdleWait: 1 * time.Second, HostTimeout: 2 * time.Minute, MaxPages: 2, MaxMemoryMB: 512, Concurrency: 1}
+	p := NewDynamicProvider(cfg)
+	cap, err := p.Capture(context.Background(), "https://www.cloudflare.com/", scope)
+	if err != nil {
+		t.Fatalf("capture: %v", err)
+	}
+	if cap.Pages != 2 || len(cap.PagesVisited) != 2 {
+		t.Fatalf("page budget not enforced: pages=%d visited=%v", cap.Pages, cap.PagesVisited)
+	}
+	t.Logf("page budget ok: %v", cap.PagesVisited)
+}
+
+func TestDynamicHostTimeout(t *testing.T) {
+	if os.Getenv("DYNAMIC_E2E") != "1" {
+		t.Skip("set DYNAMIC_E2E=1 with Chrome installed to run browser host-timeout test")
+	}
+	proxy := newLocalForwardProxy()
+	defer proxy.Close()
+	scope, _ := NewScope("www.cloudflare.com", nil, nil)
+	cfg := DynamicConfig{Enabled: true, Proxy: proxy.URL(), PageTimeout: 30 * time.Second, IdleWait: 3 * time.Second, HostTimeout: 5 * time.Second, MaxPages: 10, MaxMemoryMB: 512, Concurrency: 1}
+	p := NewDynamicProvider(cfg)
+	start := time.Now()
+	cap, err := p.Capture(context.Background(), "https://www.cloudflare.com/", scope)
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Fatalf("host timeout should return an error, got pages=%d", cap.Pages)
+	}
+	if elapsed > 15*time.Second {
+		t.Fatalf("host timeout not enforced: %s", elapsed)
+	}
+	t.Logf("host timeout ok: elapsed=%s pages=%d err=%v", elapsed, cap.Pages, err)
+}
+
+func TestDynamicFigmaE2E(t *testing.T) {
+	if os.Getenv("DYNAMIC_E2E") != "1" {
+		t.Skip("set DYNAMIC_E2E=1 with Chrome installed to run figma dynamic test")
+	}
+	proxy := newLocalForwardProxy()
+	defer proxy.Close()
+	scope, _ := NewScope("www.figma.com", nil, nil)
+	cfg := DynamicConfig{Enabled: true, Proxy: proxy.URL(), PageTimeout: 30 * time.Second, IdleWait: 2 * time.Second, HostTimeout: 5 * time.Minute, MaxPages: 10, MaxMemoryMB: 768, Concurrency: 1}
+	p := NewDynamicProvider(cfg)
+	cap, err := p.Capture(context.Background(), "https://www.figma.com/", scope)
+	if err != nil {
+		t.Logf("capture warning: %v", err)
+	}
+	t.Logf("figma observed=%d xhr_fetch=%d pages=%d blocked=%d", cap.Observed, len(cap.Records), cap.Pages, len(cap.Blocked))
+	for _, r := range cap.Records {
+		t.Logf("FIGMA %s %s status=%v", r.Extra["method"], r.Value, r.Extra["status"])
+	}
+	if cap.Pages < 3 || len(cap.Records) < 1 {
+		t.Fatalf("figma multi-page capture too thin: pages=%d records=%d", cap.Pages, len(cap.Records))
+	}
+}
+
+func TestDynamicLoopGuard(t *testing.T) {
+	if os.Getenv("DYNAMIC_E2E") != "1" {
+		t.Skip("set DYNAMIC_E2E=1 with Chrome installed to run browser loop test")
+	}
+	// The upstream proxy serves a tiny two-page cycle for http://loop.test/.
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		switch r.URL.Path {
+		case "/":
+			_, _ = w.Write([]byte(`<a href="/a">a</a><a href="/b">b</a>`))
+		case "/a":
+			_, _ = w.Write([]byte(`<a href="/b">b</a>`))
+		case "/b":
+			_, _ = w.Write([]byte(`<a href="/a">a</a>`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer mock.Close()
+	scope, err := NewScope("loop.test", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := DynamicConfig{Enabled: true, Proxy: mock.URL, PageTimeout: 5 * time.Second, IdleWait: 0, HostTimeout: 30 * time.Second, MaxPages: 10, MaxMemoryMB: 256, Concurrency: 1}
+	p := NewDynamicProvider(cfg)
+	cap, err := p.Capture(context.Background(), "http://loop.test/", scope)
+	if err != nil {
+		t.Fatalf("capture: %v", err)
+	}
+	if cap.Pages != 3 {
+		t.Fatalf("loop guard failed: pages=%d visited=%v", cap.Pages, cap.PagesVisited)
+	}
+	t.Logf("loop guard ok: %v", cap.PagesVisited)
 }

@@ -2,6 +2,7 @@ package recon
 
 import (
 	"context"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -71,3 +72,24 @@ func TestCustomHeaderNamesOnly(t *testing.T) {
 
 // helpers keep the tests readable without exposing network.Headers construction
 // everywhere.
+
+func TestDynamicCandidateSanitization(t *testing.T) {
+	home, _ := url.Parse("https://www.cloudflare.com/")
+	got := sanitizeCandidates([]string{
+		"/login/", "https://www.cloudflare.com/login", "javascript:alert(1)", "mailto:a@b.c",
+		"https://other.example/x", "/static/app.css", "/api/users", "/user/1#frag",
+	}, home, "www.cloudflare.com")
+	seen := map[string]bool{}
+	for _, u := range got {
+		seen[u] = true
+	}
+	if !seen["https://www.cloudflare.com/login"] || !seen["https://www.cloudflare.com/user/1"] {
+		t.Fatalf("candidates=%v", got)
+	}
+	if len(got) != 2 {
+		t.Fatalf("duplicate/foreign/static candidates leaked: %v", got)
+	}
+	if candidateScore("https://www.cloudflare.com/login") <= candidateScore("https://www.cloudflare.com/user/1") {
+		t.Fatal("login should rank above generic user path")
+	}
+}
