@@ -88,3 +88,118 @@ jobs:
           echo "login: $(head -c 80 /tmp/login.json)"
           docker logs --tail 40 artex-redteam-verify
           docker stop artex-redteam-verify
+
+  package-smoke:
+    # 真实 Release 包冒烟：下载 linux/amd64 zip → 校验 SHA256SUMS → 解压 →
+    # 按 README 用 config.json + start.sh 启动 → 走 /setup、登录、建任务、
+    # 资产页、流量页 → SIGTERM 停止并确认守护脚本不再拉起。
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: artex
+          POSTGRES_PASSWORD: artextest
+          POSTGRES_DB: artex
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U artex -d artex"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+    env:
+      TAG: ${{ inputs.tag }}
+    steps:
+      - name: Download release package and verify SHA256SUMS
+        run: |
+          set -euxo pipefail
+          PKG="artex-redteam-${TAG#v}-linux-amd64.zip"
+          mkdir -p /tmp/release
+          cd /tmp/release
+          gh release download "${TAG}" --repo "${{ github.repository }}" \
+            --pattern "${PKG}" --pattern SHA256SUMS --dir /tmp/release
+          grep "${PKG}" SHA256SUMS | sha256sum -c -
+          sha256sum "${PKG}"
+          unzip -q "${PKG}" -d app
+          ls -la app
+
+      - name: Configure config.json and start via start.sh
+        run: |
+          set -euxo pipefail
+          cd /tmp/release/app
+          chmod +x artex-redteam start.sh
+          cp config.example.json config.json
+          python3 - <<'PY'
+          import json
+          json.dump({"database": {"dsn": "postgres://artex:artextest@127.0.0.1:5432/artex?sslmode=disable"}},
+                    open("config.json", "w"), indent=2)
+          print(open("config.json").read())
+          PY
+          unset ARTEX_REDTEAM_PG_DSN ARTEX_PG_DSN || true
+          nohup ./start.sh -addr 127.0.0.1:18787 -proxy 127.0.0.1:18788 > start.log 2>&1 &
+          echo $! > start.pid
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:18787/api/health >/tmp/health.json 2>/dev/null; then break; fi
+            sleep 1
+          done
+          echo "health: $(cat /tmp/health.json)"
+          head -5 start.log
+
+      - name: Full user flow (setup -> login -> task -> assets -> traffic)
+        run: |
+          set -euxo pipefail
+          cd /tmp/release/app
+          echo "== 1. 首页/设置页 =="
+          curl -fsS -o /tmp/index.html -w 'index_http=%{http_code} bytes=%{size_download}\n' http://127.0.0.1:18787/
+          curl -fsS -o /tmp/setup.html -w 'setup_http=%{http_code} bytes=%{size_download}\n' http://127.0.0.1:18787/setup
+          grep -q '__next' /tmp/setup.html
+          echo "auth status: $(curl -fsS http://127.0.0.1:18787/api/auth/status)"
+          echo "== 2. 首次设置管理员密码 =="
+          curl -fsS -X POST http://127.0.0.1:18787/api/auth/init \
+            -H 'Content-Type: application/json' -d '{"password":"smoke-Admin-Pass!"}' >/tmp/init.json
+          echo "init: $(head -c 60 /tmp/init.json)..."
+          echo "== 3. 登录 =="
+          curl -fsS -X POST http://127.0.0.1:18787/api/auth/login \
+            -H 'Content-Type: application/json' -d '{"username":"ARTEX-RedTeam","password":"smoke-Admin-Pass!"}' >/tmp/login.json
+          python3 -c "import json;d=json.load(open('/tmp/login.json'));assert d.get('token');print('login_ok token_len=',len(d['token']))"
+          TOKEN=$(python3 -c "import json;print(json.load(open('/tmp/login.json'))['token'])")
+          echo "== 4. 建任务（种子域名 example.com） =="
+          curl -fsS -X POST http://127.0.0.1:18787/api/tasks \
+            -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+            -d '{"description":"smoke","goal":"对 example.com 做资产侦察"}' >/tmp/task.json
+          cat /tmp/task.json | head -c 300; echo
+          TASK_ID=$(python3 -c "import json;print(json.load(open('/tmp/task.json'))['id'])")
+          curl -fsS -o /tmp/taskpage.html -w 'task_page_http=%{http_code} bytes=%{size_download}\n' "http://127.0.0.1:18787/tasks/$TASK_ID"
+          curl -fsS -H "Authorization: Bearer $TOKEN" http://127.0.0.1:18787/api/tasks >/tmp/tasks.json
+          python3 -c "import json;d=json.load(open('/tmp/tasks.json'));print('tasks_count=',len(d.get('tasks',d if isinstance(d,list) else [])))"
+          echo "== 5. 资产页 =="
+          curl -fsS -o /tmp/assets.html -w 'assets_page_http=%{http_code} bytes=%{size_download}\n' http://127.0.0.1:18787/assets
+          curl -fsS -H "Authorization: Bearer $TOKEN" http://127.0.0.1:18787/api/assets | head -c 300; echo
+          echo "== 6. 流量页 =="
+          curl -fsS -o /tmp/traffic.html -w 'traffic_page_http=%{http_code} bytes=%{size_download}\n' http://127.0.0.1:18787/traffic
+          curl -fsS -H "Authorization: Bearer $TOKEN" http://127.0.0.1:18787/api/traffic | head -c 300; echo
+
+      - name: Stop via SIGTERM and verify daemon does not restart
+        run: |
+          set -euxo pipefail
+          cd /tmp/release/app
+          PID=$(cat start.pid)
+          echo "start.sh pid=$PID"
+          kill -TERM "$PID"
+          for i in $(seq 1 20); do
+            if ! kill -0 "$PID" 2>/dev/null; then break; fi
+            sleep 0.5
+          done
+          if kill -0 "$PID" 2>/dev/null; then echo "ERROR: start.sh still alive"; exit 1; fi
+          sleep 5
+          if pgrep -af 'artex-redteam' | grep -v verify-release; then
+            echo "ERROR: server restarted after stop"; exit 1
+          fi
+          grep -q '已停止' start.log
+          if curl -fsS --max-time 2 http://127.0.0.1:18787/api/health >/dev/null 2>&1; then
+            echo "ERROR: port still serving after stop"; exit 1
+          fi
+          echo "daemon stopped cleanly, no restart"
+          echo "===== start.log tail ====="
+          tail -20 start.log
