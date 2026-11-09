@@ -3,6 +3,7 @@ package db
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"time"
 )
 
@@ -83,6 +84,11 @@ func mergeFactPayload(dst, src map[string]any) {
 			dst[k] = v
 		}
 	}
+	// Keep source_count consistent with the unioned sources (static + dynamic
+	// observations of the same interface are one fact with two evidence sources).
+	if arr, ok := dst["sources"].([]any); ok {
+		dst["source_count"] = len(arr)
+	}
 }
 
 func unionSources(a, b any) []any {
@@ -93,23 +99,39 @@ func unionSources(a, b any) []any {
 		if err != nil {
 			return
 		}
+		var m map[string]any
 		key := string(raw)
+		if json.Unmarshal(raw, &m) == nil {
+			key = fmt.Sprintf("%v|%v|%v|%v|%v|%v", m["source"], m["page_url"], m["script_url"], m["line"], m["offset"], m["snippet"])
+		}
 		if seen[key] {
 			return
 		}
 		seen[key] = true
 		out = append(out, v)
 	}
-	each := func(v any) {
+	var each func(v any)
+	each = func(v any) {
 		switch x := v.(type) {
+		case nil:
+			return
 		case []any:
 			for _, item := range x {
-				add(item)
+				each(item)
 			}
-		case nil:
-		default:
-			add(x)
+			return
 		}
+		// Incoming callers may pass a typed slice (e.g. []jsintel.SourceRef),
+		// while existing DB payloads decode as []any. Flatten both; otherwise a
+		// static slice becomes a nested array and its source label is lost.
+		rv := reflect.ValueOf(v)
+		if rv.IsValid() && (rv.Kind() == reflect.Slice || rv.Kind() == reflect.Array) {
+			for i := 0; i < rv.Len(); i++ {
+				each(rv.Index(i).Interface())
+			}
+			return
+		}
+		add(v)
 	}
 	each(a)
 	each(b)

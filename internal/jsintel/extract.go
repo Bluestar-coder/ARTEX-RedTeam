@@ -542,7 +542,7 @@ func sourceAt(pageURL, scriptURL, text string, idx int) SourceRef {
 	if end > len(text) {
 		end = len(text)
 	}
-	return SourceRef{PageURL: pageURL, ScriptURL: scriptURL, Line: 1 + strings.Count(text[:idx], "\n"), Offset: idx,
+	return SourceRef{PageURL: pageURL, ScriptURL: scriptURL, Source: "static", Line: 1 + strings.Count(text[:idx], "\n"), Offset: idx,
 		Snippet: strings.TrimSpace(text[start:end])}
 }
 

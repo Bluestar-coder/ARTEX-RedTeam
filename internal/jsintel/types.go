@@ -6,11 +6,12 @@ package jsintel
 
 // SourceRef points at one occurrence in one JS resource.
 type SourceRef struct {
-	PageURL   string `json:"page_url"`   // HTML page that referenced the script
-	ScriptURL string `json:"script_url"` // JS file (or page URL for inline scripts)
-	Line      int    `json:"line"`       // 1-based line in that script
-	Offset    int    `json:"offset"`     // byte offset in that script
-	Snippet   string `json:"snippet"`    // ±N chars of raw context
+	PageURL   string `json:"page_url"`         // HTML page that referenced the script
+	ScriptURL string `json:"script_url"`       // JS file (or page URL for dynamic/inline)
+	Line      int    `json:"line"`             // 1-based line in that script
+	Offset    int    `json:"offset"`           // byte offset in that script
+	Snippet   string `json:"snippet"`          // ±N chars of raw context
+	Source    string `json:"source,omitempty"` // "static" or "dynamic"
 }
 
 // Confidence ranks how much static evidence supports an extracted interface.
