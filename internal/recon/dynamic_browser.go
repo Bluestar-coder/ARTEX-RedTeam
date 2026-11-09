@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/chromedp/cdproto/network"
@@ -22,8 +23,8 @@ import (
 // document request and deadlocks Page.navigate on a single CDP session. Scope is
 // enforced one hop earlier, at the local proxy, so blocked requests are never
 // sent at all.
-func captureBrowser(ctx context.Context, pageURL string, scope Scope, cfg DynamicConfig) (DynamicCapture, error) {
-	out := DynamicCapture{PageURL: pageURL, Pages: 1, Proxy: redactProxy(cfg.Proxy)}
+func captureBrowser(ctx context.Context, pageURL string, scope Scope, cfg DynamicConfig, known []string) (DynamicCapture, error) {
+	out := DynamicCapture{PageURL: pageURL, Proxy: redactProxy(cfg.Proxy)}
 	chrome, err := findChromePath(cfg.BrowserPath)
 	if err != nil {
 		return out, err
@@ -56,43 +57,278 @@ func captureBrowser(ctx context.Context, pageURL string, scope Scope, cfg Dynami
 	allocCtx, cancelAlloc := chromedp.NewExecAllocator(ctx, opts...)
 	defer cancelAlloc()
 
-	state := newCaptureState(scope)
-	state.pageURL = pageURL
+	var current atomic.Pointer[captureState]
 	browserCtx, cancelBrowser := chromedp.NewContext(allocCtx, chromedp.WithListener(func(ev any) {
-		state.handle(ev)
+		if st := current.Load(); st != nil {
+			st.handle(ev)
+		}
 	}))
 	defer cancelBrowser()
-
 	if _, err := chromedp.Call(browserCtx, network.Enable, network.EnableParams{}); err != nil {
 		return out, fmt.Errorf("network enable failed: %w", err)
 	}
-	navCtx, cancelNav := context.WithTimeout(browserCtx, cfg.PageTimeout)
-	navErr := chromedp.Do(navCtx, chromedp.Navigate(pageURL))
-	cancelNav()
-	if navErr == nil && cfg.IdleWait > 0 {
-		wait := cfg.IdleWait
-		if wait > cfg.PageTimeout {
-			wait = cfg.PageTimeout
-		}
-		select {
-		case <-time.After(wait):
-		case <-ctx.Done():
+
+	home, err := url.Parse(pageURL)
+	if err != nil || home.Hostname() == "" {
+		return out, fmt.Errorf("invalid page URL %q", pageURL)
+	}
+	homeHost := strings.ToLower(home.Hostname())
+	seen := map[string]bool{}
+	merged := map[string]*Record{}
+	mergePage := func(st *captureState) {
+		for _, rec := range st.records() {
+			key := strings.ToUpper(strExtraValue(rec.Extra, "method")) + "|" + strings.ToLower(rec.Parent) + "|" + strings.ToLower(strExtraValue(rec.Extra, "path"))
+			if old, ok := merged[key]; ok {
+				mergePageRecord(old, rec)
+				continue
+			}
+			cp := rec
+			merged[key] = &cp
 		}
 	}
 
-	// Best-effort body parameter names for requests whose body was not inlined in
-	// the event. Values are never stored; paramNames returns names only.
-	if c := chromedp.FromContext(browserCtx); c != nil && c.Target != nil {
-		state.fillPostData(c.Target, browserCtx)
+	// Root first (needed to discover DOM links), then caller-provided known page
+	// paths sorted by keyword priority; DOM links are appended after those.
+	queue := []string{normalizePageURL(pageURL)}
+	knownURLs := sanitizeCandidates(known, home, homeHost)
+	sort.SliceStable(knownURLs, func(i, j int) bool { return candidateScore(knownURLs[i]) > candidateScore(knownURLs[j]) })
+	queue = append(queue, knownURLs...)
+	first := true
+	var firstErr error
+	pages := 0
+	for len(queue) > 0 && pages < cfg.MaxPages && ctx.Err() == nil {
+		raw := queue[0]
+		queue = queue[1:]
+		normalized := normalizePageURL(raw)
+		if normalized == "" || seen[normalized] {
+			continue
+		}
+		u, err := url.Parse(normalized)
+		if err != nil || strings.ToLower(u.Hostname()) != homeHost {
+			continue
+		}
+		seen[normalized] = true
+		pages++
+		out.PagesVisited = append(out.PagesVisited, normalized)
+
+		st := newCaptureState(scope)
+		st.pageURL = normalized
+		current.Store(st)
+		navCtx, cancelNav := context.WithTimeout(browserCtx, cfg.PageTimeout)
+		navErr := chromedp.Do(navCtx, chromedp.Navigate(normalized))
+		cancelNav()
+		if navErr == nil && cfg.IdleWait > 0 {
+			wait := cfg.IdleWait
+			if wait > cfg.PageTimeout {
+				wait = cfg.PageTimeout
+			}
+			select {
+			case <-time.After(wait):
+			case <-ctx.Done():
+			}
+		}
+		if navErr == nil {
+			// A page that navigated itself off-host is not followed or recorded.
+			if final, ferr := chromedp.Run(browserCtx, chromedp.Evaluate[string](`location.href`)); ferr == nil {
+				if fu, e := url.Parse(final); e == nil && strings.ToLower(fu.Hostname()) != homeHost {
+					out.PageErrors = append(out.PageErrors, normalized+" -> out_of_scope_final:"+final)
+					navErr = fmt.Errorf("final URL out of scope: %s", final)
+				}
+			}
+		}
+		if navErr == nil && first {
+			hrefs, herr := chromedp.Run(browserCtx, chromedp.Evaluate[[]string](`Array.from(document.querySelectorAll('a[href]')).map(a=>a.href)`))
+			if herr == nil {
+				links := sanitizeCandidates(hrefs, home, homeHost)
+				sort.SliceStable(links, func(i, j int) bool { return candidateScore(links[i]) > candidateScore(links[j]) })
+				queue = append(queue, links...)
+			}
+		}
+		first = false
+		out.Observed += st.observedCount()
+		if navErr == nil {
+			if c := chromedp.FromContext(browserCtx); c != nil && c.Target != nil {
+				st.fillPostData(c.Target, browserCtx)
+			}
+		}
+		if navErr == nil && st.redirectCount() > 3 {
+			out.PageErrors = append(out.PageErrors, normalized+" redirect_chain>3")
+			navErr = fmt.Errorf("redirect chain exceeded 3")
+		}
+		// Keep partial captures even when the page timed out or its redirect chain
+		// was cut; the already-recorded requests are real observations.
+		mergePage(st)
+		if navErr != nil {
+			out.PageErrors = append(out.PageErrors, normalized+": "+navErr.Error())
+			if firstErr == nil {
+				firstErr = navErr
+			}
+		}
+		current.Store(nil)
+		// Drop page state before the next navigation to keep memory bounded.
+		clearCtx, cancelClear := context.WithTimeout(browserCtx, 2*time.Second)
+		_ = chromedp.Do(clearCtx, chromedp.Navigate("about:blank"))
+		cancelClear()
 	}
-	out.Records = state.records()
 	out.Blocked = sp.blockedList()
-	out.Observed = state.observedCount()
+	out.Records = make([]Record, 0, len(merged))
+	for _, rec := range merged {
+		out.Records = append(out.Records, *rec)
+	}
+	sort.Slice(out.Records, func(i, j int) bool {
+		if out.Records[i].Parent != out.Records[j].Parent {
+			return out.Records[i].Parent < out.Records[j].Parent
+		}
+		pi, _ := out.Records[i].Extra["path"].(string)
+		pj, _ := out.Records[j].Extra["path"].(string)
+		if pi != pj {
+			return pi < pj
+		}
+		mi, _ := out.Records[i].Extra["method"].(string)
+		mj, _ := out.Records[j].Extra["method"].(string)
+		return mi < mj
+	})
+	out.Pages = len(out.PagesVisited)
 	out.XHRCount = len(out.Records)
-	if navErr != nil {
-		return out, fmt.Errorf("page load failed: %w", navErr)
+	if ctx.Err() != nil {
+		return out, fmt.Errorf("host budget reached: %w", ctx.Err())
+	}
+	if pages == 0 && firstErr == nil {
+		firstErr = fmt.Errorf("no pages loaded")
+	}
+	if len(out.Records) == 0 && firstErr != nil {
+		return out, fmt.Errorf("no interfaces captured: %w", firstErr)
 	}
 	return out, nil
+}
+
+func strExtraValue(m map[string]any, key string) string {
+	if v, ok := m[key].(string); ok {
+		return v
+	}
+	return ""
+}
+
+func mergePageRecord(old *Record, add Record) {
+	oldPages, _ := old.Extra["page_urls"].([]string)
+	if addPage, ok := add.Extra["page_url"].(string); ok && addPage != "" {
+		oldPages = appendUnique(oldPages, addPage)
+	}
+	old.Extra["page_urls"] = oldPages
+	if len(oldPages) > 0 {
+		old.Extra["page_url"] = oldPages[0]
+		old.Extra["source_count"] = len(oldPages)
+	}
+	for _, k := range []string{"params", "query_params", "header_names"} {
+		oldV, _ := old.Extra[k].([]string)
+		addV, _ := add.Extra[k].([]string)
+		old.Extra[k] = appendUnique(oldV, addV...)
+	}
+	if st, ok := add.Extra["status"].(int64); ok && st != 0 {
+		old.Extra["status"] = st
+	}
+	if ct, ok := add.Extra["content_type"].(string); ok && ct != "" {
+		old.Extra["content_type"] = ct
+	}
+}
+
+func normalizePageURL(raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Hostname() == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		return ""
+	}
+	u.Fragment = ""
+	host := strings.ToLower(u.Hostname())
+	port := u.Port()
+	if (u.Scheme == "https" && port == "443") || (u.Scheme == "http" && port == "80") {
+		port = ""
+	}
+	if port != "" {
+		u.Host = host + ":" + port
+	} else {
+		u.Host = host
+	}
+	if u.Path == "" {
+		u.Path = "/"
+	}
+	if u.Path != "/" {
+		u.Path = strings.TrimRight(u.Path, "/")
+	}
+	return u.String()
+}
+
+func sanitizeCandidates(raws []string, home *url.URL, homeHost string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, raw := range raws {
+		raw = strings.TrimSpace(raw)
+		if raw == "" || strings.HasPrefix(strings.ToLower(raw), "javascript:") || strings.HasPrefix(strings.ToLower(raw), "mailto:") || strings.HasPrefix(strings.ToLower(raw), "tel:") {
+			continue
+		}
+		u, err := url.Parse(raw)
+		if err != nil {
+			continue
+		}
+		if !u.IsAbs() {
+			u = home.ResolveReference(u)
+		}
+		if u.Hostname() == "" || (u.Scheme != "http" && u.Scheme != "https") {
+			continue
+		}
+		if strings.ToLower(u.Hostname()) != homeHost {
+			continue
+		}
+		if isStaticAssetPath(u.Path) || looksNonPagePath(u.Path) {
+			continue
+		}
+		n := normalizePageURL(u.String())
+		if n == "" || seen[n] {
+			continue
+		}
+		seen[n] = true
+		out = append(out, n)
+	}
+	return out
+}
+
+func looksNonPagePath(p string) bool {
+	lp := strings.ToLower(p)
+	for _, frag := range []string{"/api/", "/v1/", "/v2/", "/graphql", "/rest/"} {
+		if strings.Contains(lp, frag) {
+			return true
+		}
+	}
+	for _, suf := range []string{".json", ".xml", ".php", ".do", ".action"} {
+		if strings.HasSuffix(lp, suf) {
+			return true
+		}
+	}
+	return false
+}
+
+var dynamicKeywordWeights = map[string]int{
+	"login": 10, "signin": 10, "sign-in": 10, "register": 9, "account": 8, "user": 8,
+	"admin": 8, "console": 8, "dashboard": 7, "pay": 7, "order": 6, "detail": 6,
+	"list": 5, "api": 4,
+}
+
+func candidateScore(raw string) int {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return 0
+	}
+	score := 0
+	lp := strings.ToLower(u.Path)
+	for kw, w := range dynamicKeywordWeights {
+		if strings.Contains(lp, kw) {
+			score += w
+		}
+	}
+	if u.Path == "/" || u.Path == "" {
+		score += 3
+	}
+	score -= len(u.Path) / 40
+	return score
 }
 
 type capturedRequest struct {
@@ -110,13 +346,14 @@ type capturedRequest struct {
 }
 
 type captureState struct {
-	mu       sync.Mutex
-	scope    Scope
-	pageURL  string
-	requests map[string]*capturedRequest
-	order    []string
-	observed int
-	loaded   bool
+	mu        sync.Mutex
+	scope     Scope
+	pageURL   string
+	requests  map[string]*capturedRequest
+	order     []string
+	observed  int
+	loaded    bool
+	redirects int
 }
 
 func newCaptureState(scope Scope) *captureState {
@@ -201,6 +438,12 @@ func (s *captureState) fillPostData(target *chromedp.Target, ctx context.Context
 	}
 }
 
+func (s *captureState) redirectCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.redirects
+}
+
 func (s *captureState) observedCount() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -233,6 +476,9 @@ func (s *captureState) records() []Record {
 		if path == "" {
 			path = "/"
 		}
+		if strings.EqualFold(r.method, "GET") && (strings.HasPrefix(strings.ToLower(r.contentType), "text/html") || path == "/") {
+			continue // page navigations are not interfaces
+		}
 		key := strings.ToUpper(r.method) + "|" + strings.ToLower(u.Hostname()) + "|" + path
 		if old, ok := seen[key]; ok {
 			mergeDynamicRecord(&old, r)
@@ -246,7 +492,7 @@ func (s *captureState) records() []Record {
 				"method": strings.ToUpper(r.method), "host": u.Hostname(), "path": path,
 				"params": r.bodyParams, "query_params": r.queryParams, "header_names": r.headerNames,
 				"status": r.status, "content_type": r.contentType, "resource_type": r.resourceType,
-				"page_url": s.pageURL, "source": "dynamic",
+				"page_url": s.pageURL, "page_urls": []string{s.pageURL}, "source_count": 1, "source": "dynamic",
 			},
 		}
 		seen[key] = rec
@@ -334,8 +580,13 @@ func cleanupChromeProfile(dir string) {
 // isStaticAssetPath keeps XHR/fetch-typed static resources out of interfaces.
 func isStaticAssetPath(p string) bool {
 	lp := strings.ToLower(p)
-	for _, suf := range []string{".css", ".js", ".mjs", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico", ".woff", ".woff2", ".ttf", ".map"} {
+	for _, suf := range []string{".css", ".js", ".mjs", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico", ".woff", ".woff2", ".ttf", ".map", ".br", ".gz", ".wasm", ".webmanifest"} {
 		if strings.HasSuffix(lp, suf) {
+			return true
+		}
+	}
+	for _, frag := range []string{"/webpack-artifacts/", "/_next/static/"} {
+		if strings.Contains(lp, frag) {
 			return true
 		}
 	}

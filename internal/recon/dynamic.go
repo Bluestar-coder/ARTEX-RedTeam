@@ -27,8 +27,8 @@ type DynamicConfig struct {
 	Proxy       string        // http/https/socks5 egress; empty = unusable -> fail
 	PageTimeout time.Duration // one page navigation timeout (default 30s)
 	IdleWait    time.Duration // wait after load for async XHR (default 5s)
-	HostTimeout time.Duration // whole provider/host budget (default 2m)
-	MaxPages    int           // hard cap per run (default 3; current runner uses 1)
+	HostTimeout time.Duration // whole provider/host budget (default 5m), multi-page runs
+	MaxPages    int           // hard cap per run (default 10)
 	MaxMemoryMB int           // JS heap cap passed to Chromium (default 1024)
 	Concurrency int           // browser instances; default 1
 }
@@ -80,8 +80,8 @@ func DynamicConfigFromEnv() DynamicConfig {
 		Proxy:       proxy,
 		PageTimeout: time.Duration(dynamicEnvInt("RECON_DYNAMIC_PAGE_TIMEOUT_SEC", 30)) * time.Second,
 		IdleWait:    time.Duration(dynamicEnvInt("RECON_DYNAMIC_IDLE_SEC", 5)) * time.Second,
-		HostTimeout: time.Duration(dynamicEnvInt("RECON_DYNAMIC_HOST_TIMEOUT_SEC", 120)) * time.Second,
-		MaxPages:    dynamicEnvInt("RECON_DYNAMIC_MAX_PAGES", 3),
+		HostTimeout: time.Duration(dynamicEnvInt("RECON_DYNAMIC_HOST_TIMEOUT_SEC", 300)) * time.Second,
+		MaxPages:    dynamicEnvInt("RECON_DYNAMIC_MAX_PAGES", 10),
 		MaxMemoryMB: dynamicEnvInt("RECON_DYNAMIC_MAX_MEMORY_MB", 1024),
 		Concurrency: dynamicEnvInt("RECON_DYNAMIC_CONCURRENCY", 1),
 	}
@@ -95,10 +95,10 @@ func (c *DynamicConfig) applyDefaults() {
 		c.IdleWait = 5 * time.Second
 	}
 	if c.HostTimeout <= 0 {
-		c.HostTimeout = 2 * time.Minute
+		c.HostTimeout = 5 * time.Minute
 	}
 	if c.MaxPages <= 0 {
-		c.MaxPages = 3
+		c.MaxPages = 10
 	}
 	if c.MaxMemoryMB <= 0 {
 		c.MaxMemoryMB = 1024
@@ -142,15 +142,17 @@ func init() {
 // DynamicCapture is the detailed browser capture result. It is exposed so the
 // dedicated extract_js_dynamic tool can persist facts without parsing records.
 type DynamicCapture struct {
-	PageURL     string
-	Records     []Record
-	Blocked     []BlockedRequest
-	Observed    int
-	XHRCount    int
-	Duration    time.Duration
-	BrowserPath string
-	Pages       int
-	Proxy       string // credentials redacted
+	PageURL      string
+	Records      []Record
+	Blocked      []BlockedRequest
+	Observed     int
+	XHRCount     int
+	Duration     time.Duration
+	BrowserPath  string
+	Pages        int
+	PagesVisited []string
+	PageErrors   []string
+	Proxy        string // credentials redacted
 }
 
 // BlockedRequest is one out-of-scope request stopped before leaving Chrome.
@@ -165,14 +167,20 @@ func (p *DynamicProvider) Run(ctx context.Context, req Request) ([]Record, error
 		return nil, fmt.Errorf("dynamic provider disabled (set RECON_DYNAMIC_ENABLED=1)")
 	}
 	pageURL := "https://" + req.Seed + "/"
-	cap, err := p.Capture(ctx, pageURL, req.Scope)
+	cap, err := p.CapturePages(ctx, pageURL, req.Scope, nil)
 	return cap.Records, err
 }
 
-// Capture loads exactly one page (no clicks, no forms, no login) and returns
-// xhr/fetch requests observed within Scope. Out-of-scope requests are failed at
-// the CDP layer before they leave the browser and are reported in Blocked.
+// Capture loads just the home page (backwards-compatible single-page path).
 func (p *DynamicProvider) Capture(ctx context.Context, pageURL string, scope Scope) (DynamicCapture, error) {
+	return p.CapturePages(ctx, pageURL, scope, nil)
+}
+
+// CapturePages loads the home page plus known same-host page paths, then follows
+// same-host links found in the home page DOM. It only navigates: no clicks, no
+// forms, no login. Out-of-scope requests are refused by the scope proxy before
+// they are sent.
+func (p *DynamicProvider) CapturePages(ctx context.Context, pageURL string, scope Scope, known []string) (DynamicCapture, error) {
 	out := DynamicCapture{PageURL: pageURL, Proxy: redactProxy(p.cfg.Proxy)}
 	if !p.cfg.Enabled {
 		return out, fmt.Errorf("dynamic provider disabled (set RECON_DYNAMIC_ENABLED=1)")
@@ -205,7 +213,7 @@ func (p *DynamicProvider) Capture(ctx context.Context, pageURL string, scope Sco
 	hostCtx, cancel := context.WithTimeout(ctx, p.cfg.HostTimeout)
 	defer cancel()
 	started := time.Now()
-	cap, err := captureBrowser(hostCtx, pageURL, scope, p.cfg)
+	cap, err := captureBrowser(hostCtx, pageURL, scope, p.cfg, known)
 	out.Duration = time.Since(started)
 	if cap.PageURL == "" {
 		out.PageURL = pageURL
@@ -216,8 +224,16 @@ func (p *DynamicProvider) Capture(ctx context.Context, pageURL string, scope Sco
 	out.XHRCount = cap.XHRCount
 	out.BrowserPath = cap.BrowserPath
 	out.Pages = cap.Pages
+	out.PagesVisited = cap.PagesVisited
+	out.PageErrors = cap.PageErrors
 	log.Printf("[recon] provider=dynamic page=%s duration=%s pages=%d max_pages=%d max_memory_mb=%d concurrency=%d processes=1 observed=%d xhr_fetch=%d blocked=%d browser=%q proxy=%s err=%v",
 		pageURL, out.Duration.Round(time.Millisecond), out.Pages, p.cfg.MaxPages, p.cfg.MaxMemoryMB, p.cfg.Concurrency, out.Observed, out.XHRCount, len(out.Blocked), out.BrowserPath, out.Proxy, err)
+	if len(out.PagesVisited) > 0 {
+		log.Printf("[recon] provider=dynamic visited=%s", strings.Join(out.PagesVisited, ","))
+	}
+	for _, pe := range out.PageErrors {
+		log.Printf("[recon] provider=dynamic page_error=%s", pe)
+	}
 	for _, b := range out.Blocked {
 		log.Printf("[recon] provider=dynamic blocked url=%s reason=%s", b.URL, b.Reason)
 	}
