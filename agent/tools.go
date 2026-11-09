@@ -439,6 +439,9 @@ func (t *ToolSet) graphOverviewData() map[string]any {
 		findingList = append(findingList, m)
 	}
 	out["finding_list"] = findingList
+	if summary := t.jsIntelOverview(factNodes); summary != nil {
+		out["js_intel"] = summary
+	}
 	// recent_facts：非折叠事实里最新的一窗（≤N，factNodes 按 id 降序即最新在前）。已折进
 	// digest 且仍冷的（hidden）走 cold_digests，不在此重复。每条 {id, summary, from_intent?,
 	// confidence?}；evidence 等详情用 node_detail(id)。更早的用 list_facts 翻。
@@ -2027,5 +2030,7 @@ func (t *ToolSet) PlannerTools() []actool.CoreTool {
 		t.listUntestedAssets(),
 		// run_recon：M1 侦察触发（子域枚举 + 存活/指纹 -> 资产库）。
 		t.runRecon(),
+		// extract_js：M2 静态 JS 接口/敏感信息抽取 -> 探索图 fact。
+		t.extractJS(),
 	}
 }
