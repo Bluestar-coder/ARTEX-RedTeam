@@ -158,8 +158,11 @@ func Extract(host, pageURL, scriptURL, text string) Result {
 	}
 	// Any literal API-ish path (catch bundled route tables / constants).
 	for _, m := range rePathLit.FindAllStringSubmatchIndex(text, -1) {
-		if isAssignmentRHS(text, m[0]) || isBaseURLValue(text, m[0]) {
-			continue // constant/baseURL definitions are not interfaces by themselves
+		if isAssignmentRHS(text, m[0]) || isBaseURLValue(text, m[0]) || isRouteConfigPrev(text, m[0]) {
+			continue // constant/baseURL/route definitions are not interfaces by themselves
+		}
+		if p := strings.TrimSpace(text[m[2]:m[3]]); p == "/api" || p == "/api/" {
+			continue // router/framework internals, not an endpoint
 		}
 		raw := text[m[2]:m[3]]
 		c := buildIface(host, pageURL, scriptURL, text, raw, m[0], "path_literal", "")
@@ -172,7 +175,7 @@ func Extract(host, pageURL, scriptURL, text string) Result {
 	// constants, axios baseURL, config objects, bare suffixes). Still static.
 	consts := fileConstMap(text)
 	bases := axiosBaseURLs(text) // RULE_CONST_LINE
-	addEval := func(expr, method, rule string, start int, prefix string) (path string, conf Confidence) {
+	addEval := func(expr, method, rule string, start int, prefix string, keep func(string) bool) (path string, conf Confidence) {
 		p, _, evalConf, unresolved, used := evalPathExpr(expr, consts, bases)
 		if !used || p == "" {
 			if unresolved >= 1 && !used {
@@ -182,6 +185,9 @@ func Extract(host, pageURL, scriptURL, text string) Result {
 		}
 		if prefix != "" && !strings.Contains(p, "://") {
 			p = joinBaseURL(prefix, p)
+		}
+		if keep != nil && !keep(p) {
+			return "", ""
 		}
 		c := buildIface(host, pageURL, scriptURL, text, p, start, rule, "")
 		if method != "" {
@@ -224,7 +230,7 @@ func Extract(host, pageURL, scriptURL, text string) Result {
 		} else if strings.Contains(expr, "+") {
 			rule = "const_fold"
 		}
-		addEval(expr, method, rule, m[0], "")
+		addEval(expr, method, rule, m[0], "", nil)
 	}
 
 	// RULE_AXIOS_BEGIN
@@ -237,7 +243,7 @@ func Extract(host, pageURL, scriptURL, text string) Result {
 		}
 		method := strings.ToUpper(text[m[2]:m[3]])
 		_ = end
-		addEval(expr, method, "axios_expr", m[0], "")
+		addEval(expr, method, "axios_expr", m[0], "", nil)
 	}
 	for _, m := range reInstanceCall.FindAllStringSubmatchIndex(text, -1) {
 		name := text[m[2]:m[3]]
@@ -251,7 +257,7 @@ func Extract(host, pageURL, scriptURL, text string) Result {
 			continue
 		}
 		method := strings.ToUpper(text[m[4]:m[5]])
-		addEval(expr, method, "axios_baseurl", m[0], base)
+		addEval(expr, method, "axios_baseurl", m[0], base, nil)
 	}
 	for _, m := range reJQCall.FindAllStringSubmatchIndex(text, -1) {
 		open := m[1] - 1
@@ -265,7 +271,7 @@ func Extract(host, pageURL, scriptURL, text string) Result {
 			method = "POST"
 		}
 		rule := "jquery_" + call
-		addEval(expr, method, rule, m[0], "")
+		addEval(expr, method, rule, m[0], "", nil)
 	}
 
 	// RULE_AXIOS_END
@@ -294,7 +300,7 @@ func Extract(host, pageURL, scriptURL, text string) Result {
 		} else if strings.Contains(expr, "+") {
 			rule = "config_object_fold"
 		}
-		addEval(expr, method, rule, m[0], "")
+		addEval(expr, method, rule, m[0], "", nil)
 	}
 
 	// RULE_CONFIG_END
@@ -307,6 +313,9 @@ func Extract(host, pageURL, scriptURL, text string) Result {
 			continue
 		}
 		if strings.Contains(raw, "://") && hostOfValue(raw) != host {
+			continue
+		}
+		if isRouteConfigPrev(text, m[0]) {
 			continue
 		}
 		if !strings.HasPrefix(raw, "/") && !strings.HasPrefix(raw, host) && !strings.Contains(raw, "://") {
@@ -678,4 +687,32 @@ func isBaseURLValue(text string, start int) bool {
 	}
 	prev := text[lo:start]
 	return regexp.MustCompile("(?i)baseURL\\s*:\\s*[`'\"]$").MatchString(prev)
+}
+
+// isAPIishPath reports whether a path looks like an API rather than a plain
+// website/asset URL. Used to keep config-object/bare-suffix rules precise.
+func isAPIishPath(p string) bool {
+	lower := strings.ToLower(p)
+	for _, frag := range []string{"/api", "/v1/", "/v2/", "/v3/", "/graphql", "/rest/", "/rpc/"} {
+		if strings.Contains(lower, frag) {
+			return true
+		}
+	}
+	for _, suffix := range []string{".json", ".php", ".do", ".action"} {
+		if strings.HasSuffix(lower, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+// isRouteConfigPrev filters Next.js/react-router route tables (source: "/x",
+// destination: "/y", paths: [...]) from bare suffix/path literal extraction.
+func isRouteConfigPrev(text string, start int) bool {
+	lo := start - 80
+	if lo < 0 {
+		lo = 0
+	}
+	prev := text[lo:start]
+	return regexp.MustCompile("(?i)(?:source|destination|paths?|route|redirect)\\s*:\\s*[\\[\"']?$").MatchString(prev)
 }
