@@ -13,15 +13,25 @@ type SourceRef struct {
 	Snippet   string `json:"snippet"`    // ±N chars of raw context
 }
 
+// Confidence ranks how much static evidence supports an extracted interface.
+type Confidence string
+
+const (
+	ConfidenceHigh   Confidence = "high"   // literal path + explicit method call
+	ConfidenceMedium Confidence = "medium" // one-level constant / template / axios baseURL recovery
+	ConfidenceLow    Confidence = "low"    // bare path suffix or method unknown
+)
+
 // Interface is one extracted API endpoint.
 type Interface struct {
-	Host    string      `json:"host"`
-	Method  string      `json:"method"` // GET/POST/... or "unknown"
-	Path    string      `json:"path"`   // pathname only; query params are in Params
-	Params  []string    `json:"params,omitempty"`
-	Tags    []string    `json:"tags,omitempty"` // admin / upload / payment
-	Rule    string      `json:"rule"`           // fetch / axios / xhr / ajax / path_literal
-	Sources []SourceRef `json:"sources"`
+	Host       string      `json:"host"`
+	Method     string      `json:"method"` // GET/POST/... or "unknown"
+	Path       string      `json:"path"`   // pathname only; query params are in Params
+	Params     []string    `json:"params,omitempty"`
+	Tags       []string    `json:"tags,omitempty"` // admin / upload / payment
+	Rule       string      `json:"rule"`           // fetch / axios / xhr / jquery / path_literal / template / const_fold / axios_baseurl / config_object / bare_suffix
+	Confidence Confidence  `json:"confidence"`
+	Sources    []SourceRef `json:"sources"`
 }
 
 // Sensitive is one sensitive hint with enough context to avoid keyword-only noise.
