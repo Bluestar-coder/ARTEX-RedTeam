@@ -2032,5 +2032,7 @@ func (t *ToolSet) PlannerTools() []actool.CoreTool {
 		t.runRecon(),
 		// extract_js：M2 静态 JS 接口/敏感信息抽取 -> 探索图 fact。
 		t.extractJS(),
+		// extract_js_dynamic：M3 无头浏览器真实请求截获（默认关闭、高成本、独立工具）。
+		t.extractJSDynamic(),
 	}
 }

@@ -110,6 +110,7 @@ func (t *ToolSet) extractJS() actool.CoreTool {
 					"detail":       fmt.Sprintf(" params=%v tags=%v rule=%s sources=%d", itf.Params, itf.Tags, itf.Rule, len(itf.Sources)),
 					"evidence":     firstSnippet(itf.Sources),
 					"confidence":   "observed",
+					"source":       "static",
 					"extract_kind": "js_interface",
 					"host":         itf.Host, "method": itf.Method, "path": itf.Path,
 					"params": itf.Params, "tags": itf.Tags, "rule": itf.Rule,
@@ -170,14 +171,15 @@ func firstSnippet(refs []jsintel.SourceRef) string {
 // planner can turn into intents.
 func (t *ToolSet) jsIntelOverview(facts []*db.Node) map[string]any {
 	type ifaceFact struct {
-		ID         int64
-		Host       string
-		Method     string
-		Path       string
-		Params     []any
-		Tags       []any
-		Sources    int
-		Confidence string
+		ID              int64
+		Host            string
+		Method          string
+		Path            string
+		Params          []any
+		Tags            []any
+		Sources         int
+		Confidence      string
+		EvidenceSources []string
 	}
 	var ifaces []ifaceFact
 	byHost := map[string]int{}
@@ -196,6 +198,7 @@ func (t *ToolSet) jsIntelOverview(facts []*db.Node) map[string]any {
 			f.Method, _ = p["method"].(string)
 			f.Path, _ = p["path"].(string)
 			f.Confidence, _ = p["extract_confidence"].(string)
+			f.EvidenceSources = payloadSourceKinds(p)
 			f.Params, _ = p["params"].([]any)
 			f.Tags, _ = p["tags"].([]any)
 			switch v := p["source_count"].(type) {
@@ -242,8 +245,8 @@ func (t *ToolSet) jsIntelOverview(facts []*db.Node) map[string]any {
 		top = append(top, map[string]any{
 			"fact_id": f.ID, "host": f.Host, "method": f.Method, "path": f.Path,
 			"params": f.Params, "tags": f.Tags, "source_count": f.Sources,
-			"confidence": f.Confidence,
-			"note":       "node_detail(fact_id) 查看原始片段与出处",
+			"confidence": f.Confidence, "evidence_sources": f.EvidenceSources,
+			"note": "node_detail(fact_id) 查看原始片段与出处",
 		})
 	}
 	// Sensitive/obfuscated top entries are useful for prioritisation; keep ids only.
@@ -261,24 +264,61 @@ func (t *ToolSet) jsIntelOverview(facts []*db.Node) map[string]any {
 		})
 	}
 	byConf := map[string]int{}
+	bySource := map[string]int{"static": 0, "dynamic": 0}
 	for _, f := range ifaces {
 		c := f.Confidence
 		if c == "" {
 			c = "low"
 		}
 		byConf[c]++
+		if len(f.EvidenceSources) == 0 {
+			bySource["static"]++
+			continue
+		}
+		for _, s := range f.EvidenceSources {
+			bySource[s]++
+		}
 	}
 	out := map[string]any{
 		"total_interfaces":   len(ifaces),
 		"by_confidence":      byConf,
+		"by_source":          bySource,
 		"interfaces_by_host": byHost,
 		"sensitive_total":    sensitiveTotal,
 		"obfuscated_total":   obfuscatedTotal,
 		"top_interfaces":     top,
-		"note":               "接口/敏感信息来自静态 JS 分析（不执行 JS）；含管理/上传/支付 tag 的接口与 sensitive_top 优先人工核对。",
+		"note":               "接口/敏感信息来自静态 JS 分析；dynamic 来源为无头浏览器真实抓到的请求（high）。含管理/上传/支付 tag 的接口与 sensitive_top 优先人工核对。",
 	}
 	if len(sensitiveTop) > 0 {
 		out["sensitive_top"] = sensitiveTop
 	}
+	return out
+}
+
+// payloadSourceKinds extracts evidence sources from a js_interface payload.
+// Older facts without a source marker count as static.
+func payloadSourceKinds(p map[string]any) []string {
+	seen := map[string]bool{}
+	var out []string
+	if raw, ok := p["sources"].([]any); ok {
+		for _, item := range raw {
+			m, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			src, _ := m["source"].(string)
+			if src == "" {
+				src = "static"
+			}
+			if !seen[src] {
+				seen[src] = true
+				out = append(out, src)
+			}
+		}
+	}
+	if len(out) == 0 {
+		out = []string{"static"}
+	}
+	sort.Strings(out)
 	return out
 }
