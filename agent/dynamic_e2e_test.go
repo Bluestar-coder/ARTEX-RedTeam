@@ -125,6 +125,9 @@ func TestExtractJSDynamicE2E(t *testing.T) {
 	if int(first["interfaces"].(float64)) < 3 {
 		t.Fatalf("want >=3 real dynamic interfaces on cloudflare, got %v", first)
 	}
+	if pc, _ := first["pages_count"].(float64); pc < 5 {
+		t.Fatalf("want multi-page run (>=5 pages), got %v", first["pages"])
+	}
 	facts := func() []map[string]any {
 		rows, err := d.Query(`SELECT payload FROM exploration_nodes WHERE exploration_id=$1 AND kind='fact' AND payload->>'extract_kind'='js_interface' ORDER BY id`, expID)
 		if err != nil {
@@ -146,6 +149,15 @@ func TestExtractJSDynamicE2E(t *testing.T) {
 	fs := facts()
 	if len(fs) < 3 {
 		t.Fatalf("stored dynamic facts=%d", len(fs))
+	}
+	maxSources := 0
+	for _, p := range fs {
+		if n, ok := p["source_count"].(float64); ok && int(n) > maxSources {
+			maxSources = int(n)
+		}
+	}
+	if maxSources < 2 {
+		t.Fatalf("dynamic facts should accumulate page sources across pages, max source_count=%d", maxSources)
 	}
 	for _, p := range fs {
 		t.Logf("DYN FACT %s %s %s source=%v conf=%v params=%v headers=%v", p["method"], p["path"], p["host"], p["source"], p["extract_confidence"], p["params"], p["header_names"])

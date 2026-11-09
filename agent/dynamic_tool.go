@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -56,8 +57,9 @@ func (t *ToolSet) extractJSDynamic() actool.CoreTool {
 			if pageURL == "" {
 				pageURL = "https://" + domain + "/"
 			}
+			known := t.dynamicKnownPages(domain)
 			provider := recon.NewDynamicProvider(cfg)
-			cap, capErr := provider.Capture(ctx, pageURL, scope)
+			cap, capErr := provider.CapturePages(ctx, pageURL, scope, known)
 			if capErr != nil && len(cap.Records) == 0 {
 				return jsonResult(map[string]any{
 					"page": pageURL, "error": capErr.Error(), "blocked": cap.Blocked,
@@ -79,14 +81,22 @@ func (t *ToolSet) extractJSDynamic() actool.CoreTool {
 				params := extraStrings(extra, "params")
 				queryParams := extraStrings(extra, "query_params")
 				headerNames := extraStrings(extra, "header_names")
-				src := jsintel.SourceRef{
-					PageURL: cap.PageURL, ScriptURL: cap.PageURL, Source: "dynamic",
-					Snippet: fmt.Sprintf("dynamic request: %s %s", method, rec.Value),
+				pageURLs := extraStrings(extra, "page_urls")
+				if len(pageURLs) == 0 {
+					pageURLs = []string{cap.PageURL}
 				}
+				srcs := make([]jsintel.SourceRef, 0, len(pageURLs))
+				for _, pu := range pageURLs {
+					srcs = append(srcs, jsintel.SourceRef{
+						PageURL: pu, ScriptURL: pu, Source: "dynamic",
+						Snippet: fmt.Sprintf("dynamic request: %s %s", method, rec.Value),
+					})
+				}
+				firstPage := pageURLs[0]
 				payload := map[string]any{
 					"summary":            fmt.Sprintf("动态接口: %s %s @%s", method, path, host),
 					"detail":             fmt.Sprintf(" source=dynamic resource_type=%s params=%v headers=%v status=%v content_type=%v", extraString(extra, "resource_type"), params, headerNames, extra["status"], extraString(extra, "content_type")),
-					"evidence":           src.Snippet,
+					"evidence":           srcs[0].Snippet,
 					"confidence":         "observed",
 					"source":             "dynamic",
 					"extract_kind":       "js_interface",
@@ -95,8 +105,9 @@ func (t *ToolSet) extractJSDynamic() actool.CoreTool {
 					"host":               host, "method": method, "path": path,
 					"params": params, "query_params": queryParams, "header_names": headerNames,
 					"status": extra["status"], "content_type": extraString(extra, "content_type"),
-					"resource_type": extraString(extra, "resource_type"), "page_url": cap.PageURL,
-					"sources": []jsintel.SourceRef{src}, "source_count": 1, "observed_at": now,
+					"resource_type": extraString(extra, "resource_type"), "page_url": firstPage,
+					"page_urls": pageURLs,
+					"sources":   srcs, "source_count": len(srcs), "observed_at": now,
 				}
 				key := "jsif|" + host + "|" + method + "|" + strings.ToLower(path)
 				id, isNew, err := t.ts.UpsertExtractedFact(key, payload, nil)
@@ -113,7 +124,9 @@ func (t *ToolSet) extractJSDynamic() actool.CoreTool {
 				}
 			}
 			result := map[string]any{
-				"page": cap.PageURL, "browser": cap.BrowserPath, "proxy": cap.Proxy,
+				"page": cap.PageURL, "pages": cap.PagesVisited, "pages_count": cap.Pages,
+				"page_errors": cap.PageErrors, "known_pages": len(known),
+				"browser": cap.BrowserPath, "proxy": cap.Proxy,
 				"observed_requests": cap.Observed, "interfaces": len(cap.Records),
 				"blocked": cap.Blocked, "duration_ms": cap.Duration.Milliseconds(),
 				"facts_created": created, "facts_updated": updated,
@@ -147,4 +160,85 @@ func extraStrings(m map[string]any, key string) []string {
 		return out
 	}
 	return nil
+}
+
+// dynamicKnownPages collects same-host page-like paths from endpoint assets and
+// static interface facts. XHR/API-looking paths are excluded; keyword ranking is
+// done by the provider when it orders candidates.
+func (t *ToolSet) dynamicKnownPages(domain string) []string {
+	domain = strings.ToLower(strings.TrimSpace(domain))
+	if domain == "" {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	add := func(raw string) {
+		u, err := url.Parse(strings.TrimSpace(raw))
+		if err != nil || u.Hostname() == "" {
+			return
+		}
+		if strings.ToLower(u.Hostname()) != domain || (u.Scheme != "http" && u.Scheme != "https") {
+			return
+		}
+		if isPageLikePath(u.Path) {
+			u.RawQuery = ""
+			u.Fragment = ""
+			s := u.String()
+			if !seen[s] {
+				seen[s] = true
+				out = append(out, s)
+			}
+		}
+	}
+	if t.as != nil {
+		if assets, err := t.as.QueryByType("endpoint", 300, 0); err == nil {
+			for _, a := range assets {
+				if a.Method != "" && !strings.EqualFold(a.Method, "GET") && !strings.EqualFold(a.Method, "HEAD") {
+					continue
+				}
+				add(a.URL)
+			}
+		}
+	}
+	if t.ts != nil {
+		if nodes, err := t.ts.ListByKind("fact", 2000); err == nil {
+			for _, n := range nodes {
+				var p map[string]any
+				if json.Unmarshal(n.Payload, &p) != nil || p["extract_kind"] != "js_interface" {
+					continue
+				}
+				host, _ := p["host"].(string)
+				if !strings.EqualFold(host, domain) {
+					continue
+				}
+				if m, _ := p["method"].(string); m != "" && !strings.EqualFold(m, "GET") && !strings.EqualFold(m, "HEAD") {
+					continue
+				}
+				path, _ := p["path"].(string)
+				if path == "" || !strings.HasPrefix(path, "/") {
+					continue
+				}
+				add("https://" + host + path)
+			}
+		}
+	}
+	return out
+}
+
+func isPageLikePath(p string) bool {
+	lp := strings.ToLower(p)
+	if lp == "" || lp == "/" {
+		return false
+	}
+	for _, frag := range []string{"/api/", "/v1/", "/v2/", "/graphql", "/rest/", "/rpc/"} {
+		if strings.Contains(lp, frag) {
+			return false
+		}
+	}
+	for _, suf := range []string{".json", ".xml", ".php", ".do", ".action", ".css", ".js", ".png", ".jpg", ".svg", ".woff", ".woff2", ".pdf", ".zip"} {
+		if strings.HasSuffix(lp, suf) {
+			return false
+		}
+	}
+	return true
 }
