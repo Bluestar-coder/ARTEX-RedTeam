@@ -1,0 +1,90 @@
+name: verify-release
+
+# 独立于 release 构建的发布物验证：
+# 在 GitHub 云端 runner（与构建 job 不同的运行环境）从 Docker Hub 拉取镜像，
+# 校验 digest / 多架构 manifest，并以真实 PostgreSQL 起容器、访问 /setup。
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "要验证的 release tag（例如 v0.4.3）"
+        required: true
+        default: "v0.4.3"
+
+permissions:
+  contents: read
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: artex
+          POSTGRES_PASSWORD: artextest
+          POSTGRES_DB: artex
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U artex -d artex"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+    env:
+      TAG: ${{ inputs.tag }}
+      EXPECTED_DIGEST: "sha256:f41762b630ce6d5678baf77a34d23cd7de9a620925f43be05d0fa79606d4bdde"
+    steps:
+      - name: Pull v0.4.3 and latest, compare RepoDigest
+        run: |
+          set -euxo pipefail
+          docker pull "bluestarcoder/artex-redteam:${TAG}"
+          docker pull "bluestarcoder/artex-redteam:latest"
+          dt=$(docker inspect --format '{{index .RepoDigests 0}}' "bluestarcoder/artex-redteam:${TAG}")
+          dl=$(docker inspect --format '{{index .RepoDigests 0}}' "bluestarcoder/artex-redteam:latest")
+          echo "digest ${TAG}   = ${dt}"
+          echo "digest latest   = ${dl}"
+          test "$dt" = "$dl"
+          case "$dt" in
+            *"${EXPECTED_DIGEST}") echo "digest matches CI build log";;
+            *) echo "DIGEST MISMATCH: expected ${EXPECTED_DIGEST}"; exit 1;;
+          esac
+
+      - name: Check multi-arch manifest (linux/amd64 + linux/arm64)
+        run: |
+          set -euxo pipefail
+          docker manifest inspect "bluestarcoder/artex-redteam:${TAG}" > manifest.json
+          cat manifest.json
+          python3 - <<'PY'
+          import json
+          d = json.load(open("manifest.json"))
+          plats = {(m["platform"]["os"], m["platform"]["architecture"]) for m in d["manifests"]}
+          print("platforms:", sorted(plats))
+          assert ("linux", "amd64") in plats, "linux/amd64 missing"
+          assert ("linux", "arm64") in plats, "linux/arm64 missing"
+          print("OK: linux/amd64 and linux/arm64 present")
+          PY
+
+      - name: Run container against PostgreSQL and open /setup
+        run: |
+          set -euxo pipefail
+          docker run -d --name artex-redteam-verify --network host \
+            -e ARTEX_REDTEAM_PG_DSN='postgres://artex:artextest@127.0.0.1:5432/artex?sslmode=disable' \
+            -e ARTEX_REDTEAM_VOLUME_CHECK_WAIT=0 \
+            "bluestarcoder/artex-redteam:${TAG}"
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8787/api/health >/tmp/health.json 2>/dev/null; then break; fi
+            sleep 1
+          done
+          echo "health: $(cat /tmp/health.json)"
+          echo "auth status: $(curl -fsS http://127.0.0.1:8787/api/auth/status)"
+          curl -fsS -o /tmp/setup.html -w 'setup_http=%{http_code} bytes=%{size_download}\n' http://127.0.0.1:8787/setup
+          head -c 200 /tmp/setup.html; echo
+          curl -fsS -X POST http://127.0.0.1:8787/api/auth/init \
+            -H 'Content-Type: application/json' -d '{"password":"verify-Admin-Pass!"}' >/tmp/init.json
+          echo "init: $(head -c 120 /tmp/init.json)"
+          curl -fsS -X POST http://127.0.0.1:8787/api/auth/login \
+            -H 'Content-Type: application/json' -d '{"username":"ARTEX-RedTeam","password":"verify-Admin-Pass!"}' >/tmp/login.json
+          echo "login: $(head -c 80 /tmp/login.json)"
+          docker logs --tail 40 artex-redteam-verify
+          docker stop artex-redteam-verify
