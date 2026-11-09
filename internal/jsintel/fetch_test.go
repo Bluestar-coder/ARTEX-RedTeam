@@ -80,6 +80,32 @@ func TestFetcherScansScriptsAndEnforcesScope(t *testing.T) {
 	}
 }
 
+func TestFetcherHostBudgetCap(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`<script src="/a.js"></script><script src="/b.js"></script>`))
+	})
+	js := strings.Repeat("var x=1;", 8)
+	mux.HandleFunc("/a.js", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(js)) })
+	mux.HandleFunc("/b.js", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(js)) })
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	scope, _ := recon.NewScope("127.0.0.1", nil, nil)
+	f := NewFetcher(scope, 2, 5*time.Second)
+	f.MaxFileBytes = 4096
+	f.MaxHostBytes = 60 // page itself is ~62 bytes, leaving no room for scripts
+	agg := f.Scan(context.Background(), []Target{{Host: "127.0.0.1", PageURL: srv.URL + "/"}})
+	hostSkip := false
+	for _, s := range agg.Skipped {
+		if strings.Contains(s.Reason, "host_budget_exceeded") {
+			hostSkip = true
+		}
+	}
+	if !hostSkip {
+		t.Fatalf("host budget not enforced: %+v", agg.Skipped)
+	}
+}
+
 func TestFetcherFileSizeCap(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -96,7 +122,7 @@ func TestFetcherFileSizeCap(t *testing.T) {
 	agg := f.Scan(context.Background(), []Target{{Host: "127.0.0.1", PageURL: srv.URL + "/"}})
 	skipped := false
 	for _, s := range agg.Skipped {
-		if strings.Contains(s.URL, "big.js") && strings.Contains(s.Reason, "exceeds") {
+		if strings.Contains(s.URL, "big.js") && strings.Contains(s.Reason, "file_too_large") {
 			skipped = true
 		}
 	}

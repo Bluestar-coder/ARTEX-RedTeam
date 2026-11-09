@@ -82,7 +82,10 @@ func (t *ToolSet) extractJS() actool.CoreTool {
 					"note":          "范围内没有已存活的 HTTP service 资产；请先执行 run_recon",
 				})
 			}
-			fetcher := jsintel.NewFetcher(scope, 8, 15*time.Second)
+			jsCfg := jsintel.ConfigFromEnv()
+			fetcher := jsintel.NewFetcher(scope, jsCfg.Concurrency, jsCfg.Timeout)
+			fetcher.MaxFileBytes = jsCfg.MaxFileBytes
+			fetcher.MaxHostBytes = jsCfg.MaxHostBytes
 			agg := fetcher.Scan(ctx, targets)
 			now := time.Now().UTC().Format(time.RFC3339)
 			created, updated := 0, 0
