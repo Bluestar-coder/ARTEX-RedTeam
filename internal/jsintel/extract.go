@@ -170,7 +170,7 @@ func Extract(host, pageURL, scriptURL, text string) Result {
 	// RULE_TEMPLATE_BEGIN
 	// --- M3 rules: expression-based recovery (template strings, one-level
 	// constants, axios baseURL, config objects, bare suffixes). Still static.
-	consts := map[string]string{}
+	consts := fileConstMap(text)
 	bases := map[string]string{}
 	addEval := func(expr, method, rule string, start int, prefix string) (path string, conf Confidence) {
 		p, _, evalConf, unresolved, used := evalPathExpr(expr, consts, bases)
@@ -573,7 +573,7 @@ func isAssignmentRHS(text string, start int) bool {
 		lo = 0
 	}
 	prev := text[lo:start]
-	return regexp.MustCompile("(?i)(?:const|let|var)\\s+[A-Za-z_$][\\w$]*\\s*=\\s*[`'\"]$").MatchString(prev)
+	return regexp.MustCompile("(?i)(?:const|let|var)\\s+[A-Za-z_$][\\w$]*\\s*=\\s*$").MatchString(prev)
 }
 
 // isBaseURLValue reports whether the literal is the value of a baseURL option;
@@ -584,5 +584,5 @@ func isBaseURLValue(text string, start int) bool {
 		lo = 0
 	}
 	prev := text[lo:start]
-	return regexp.MustCompile("(?i)baseURL\\s*:\\s*[`'\"]$").MatchString(prev)
+	return regexp.MustCompile("(?i)baseURL\\s*:\\s*$").MatchString(prev)
 }
