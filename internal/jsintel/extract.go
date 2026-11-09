@@ -171,7 +171,7 @@ func Extract(host, pageURL, scriptURL, text string) Result {
 	// --- M3 rules: expression-based recovery (template strings, one-level
 	// constants, axios baseURL, config objects, bare suffixes). Still static.
 	consts := fileConstMap(text)
-	bases := map[string]string{}
+	bases := axiosBaseURLs(text)
 	addEval := func(expr, method, rule string, start int, prefix string) (path string, conf Confidence) {
 		p, _, evalConf, unresolved, used := evalPathExpr(expr, consts, bases)
 		if !used || p == "" {
@@ -226,6 +226,49 @@ func Extract(host, pageURL, scriptURL, text string) Result {
 		}
 		addEval(expr, method, rule, m[0], "")
 	}
+
+	// RULE_AXIOS_BEGIN
+	// axios.get(EXPR) / instance.get(EXPR) with one-level baseURL.
+	for _, m := range reAxiosCall.FindAllStringSubmatchIndex(text, -1) {
+		open := m[1] - 1
+		expr, end, ok := readCallArg(text, open)
+		if !ok {
+			continue
+		}
+		method := strings.ToUpper(text[m[2]:m[3]])
+		_ = end
+		addEval(expr, method, "axios_expr", m[0], "")
+	}
+	for _, m := range reInstanceCall.FindAllStringSubmatchIndex(text, -1) {
+		name := text[m[2]:m[3]]
+		base, ok := bases[name]
+		if !ok {
+			continue
+		}
+		open := m[1] - 1
+		expr, _, ok := readCallArg(text, open)
+		if !ok {
+			continue
+		}
+		method := strings.ToUpper(text[m[4]:m[5]])
+		addEval(expr, method, "axios_baseurl", m[0], base)
+	}
+	for _, m := range reJQCall.FindAllStringSubmatchIndex(text, -1) {
+		open := m[1] - 1
+		expr, _, ok := readCallArg(text, open)
+		if !ok {
+			continue
+		}
+		call := strings.ToLower(text[m[2]:m[3]])
+		method := "GET"
+		if call == "post" {
+			method = "POST"
+		}
+		rule := "jquery_" + call
+		addEval(expr, method, rule, m[0], "")
+	}
+
+	// RULE_AXIOS_END
 
 	seenSens := map[string]*Sensitive{}
 	addSens := func(s Sensitive) {
@@ -573,7 +616,7 @@ func isAssignmentRHS(text string, start int) bool {
 		lo = 0
 	}
 	prev := text[lo:start]
-	return regexp.MustCompile("(?i)(?:const|let|var)\\s+[A-Za-z_$][\\w$]*\\s*=\\s*$").MatchString(prev)
+	return regexp.MustCompile("(?i)(?:const|let|var)\\s+[A-Za-z_$][\\w$]*\\s*=\\s*[`'\"]$").MatchString(prev)
 }
 
 // isBaseURLValue reports whether the literal is the value of a baseURL option;
@@ -584,5 +627,5 @@ func isBaseURLValue(text string, start int) bool {
 		lo = 0
 	}
 	prev := text[lo:start]
-	return regexp.MustCompile("(?i)baseURL\\s*:\\s*$").MatchString(prev)
+	return regexp.MustCompile("(?i)baseURL\\s*:\\s*[`'\"]$").MatchString(prev)
 }
