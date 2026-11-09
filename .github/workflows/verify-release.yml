@@ -123,11 +123,14 @@ jobs:
           sha256sum "${PKG}"
           unzip -q "${PKG}" -d app
           ls -la app
+          APP_DIR=$(dirname "$(find /tmp/release/app -name start.sh | head -1)")
+          echo "APP_DIR=${APP_DIR}"
+          echo "APP_DIR=${APP_DIR}" >> "$GITHUB_ENV"
 
       - name: Configure config.json and start via start.sh
         run: |
           set -euxo pipefail
-          cd /tmp/release/app
+          cd "$APP_DIR"
           chmod +x artex-redteam start.sh
           cp config.example.json config.json
           python3 - <<'PY'
@@ -149,7 +152,7 @@ jobs:
       - name: Full user flow (setup -> login -> task -> assets -> traffic)
         run: |
           set -euxo pipefail
-          cd /tmp/release/app
+          cd "$APP_DIR"
           echo "== 1. 首页/设置页 =="
           curl -fsS -o /tmp/index.html -w 'index_http=%{http_code} bytes=%{size_download}\n' http://127.0.0.1:18787/
           curl -fsS -o /tmp/setup.html -w 'setup_http=%{http_code} bytes=%{size_download}\n' http://127.0.0.1:18787/setup
@@ -183,7 +186,7 @@ jobs:
       - name: Stop via SIGTERM and verify daemon does not restart
         run: |
           set -euxo pipefail
-          cd /tmp/release/app
+          cd "$APP_DIR"
           PID=$(cat start.pid)
           echo "start.sh pid=$PID"
           kill -TERM "$PID"
@@ -193,10 +196,11 @@ jobs:
           done
           if kill -0 "$PID" 2>/dev/null; then echo "ERROR: start.sh still alive"; exit 1; fi
           sleep 5
-          if pgrep -af 'artex-redteam' | grep -v verify-release; then
-            echo "ERROR: server restarted after stop"; exit 1
+          if pgrep -x artex-redteam >/dev/null; then
+            echo "ERROR: server restarted after stop"; pgrep -af artex-redteam; exit 1
           fi
           grep -q '已停止' start.log
+          test "$(grep -c 'backend listening' start.log)" -eq 1
           if curl -fsS --max-time 2 http://127.0.0.1:18787/api/health >/dev/null 2>&1; then
             echo "ERROR: port still serving after stop"; exit 1
           fi
