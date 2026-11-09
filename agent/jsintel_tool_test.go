@@ -91,6 +91,23 @@ const admin = "/admin/dashboard";
 	if toInt(js["total_interfaces"]) == 0 || toInt(js["sensitive_total"]) == 0 {
 		t.Fatalf("js_intel=%v", js)
 	}
+	byConf, ok := js["by_confidence"].(map[string]int)
+	if !ok || len(byConf) == 0 {
+		t.Fatalf("js_intel missing by_confidence: %v", js)
+	}
+	top, _ := js["top_interfaces"].([]map[string]any)
+	if len(top) > 0 {
+		if _, has := top[0]["confidence"]; !has {
+			t.Fatalf("top_interfaces missing confidence: %v", top[0])
+		}
+	}
+	var withConf int
+	if err := d.QueryRow(`SELECT count(*) FROM exploration_nodes WHERE exploration_id=$1 AND kind='fact' AND payload->>'extract_kind'='js_interface' AND COALESCE(payload->>'extract_confidence','') <> ''`, expID).Scan(&withConf); err != nil {
+		t.Fatal(err)
+	}
+	if withConf == 0 {
+		t.Fatal("interface facts missing extract_confidence")
+	}
 	raw, _ := json.MarshalIndent(js, "", "  ")
 	t.Logf("graph_overview.js_intel:\n%s", raw)
 }
