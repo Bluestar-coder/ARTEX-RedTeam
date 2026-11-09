@@ -251,6 +251,8 @@ export interface Asset {
   method?: string;
   params?: Record<string, unknown>[];
   extra?: Record<string, unknown>;
+  source?: string;
+  observed_at?: string;
   last_seen: string;
   task_source?: string;
   task_source_summary?: string;
