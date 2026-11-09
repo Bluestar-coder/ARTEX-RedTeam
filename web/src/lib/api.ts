@@ -483,14 +483,16 @@ export const api = {
 
   // ---- assets ----
   // Server-side paginated: pass limit/offset, get back the page + full match total.
-  assets: (type = "", limit = 50, offset = 0) =>
-    get<{ count: number; total: number; assets: Asset[] }>(`/assets?type=${type}&limit=${limit}&offset=${offset}`).then(
-      (r) => ({ assets: r?.assets ?? [], total: r?.total ?? r?.count ?? 0 }),
-    ),
-  searchAssets: (dsl: string, type = "", limit = 50, offset = 0) =>
+  assets: (type = "", limit = 50, offset = 0, source = "") =>
     get<{ count: number; total: number; assets: Asset[] }>(
-      `/assets?dsl=${encodeURIComponent(dsl)}${type ? `&type=${encodeURIComponent(type)}` : ""}&limit=${limit}&offset=${offset}`,
+      `/assets?type=${type}${source ? `&source=${encodeURIComponent(source)}` : ""}&limit=${limit}&offset=${offset}`,
     ).then((r) => ({ assets: r?.assets ?? [], total: r?.total ?? r?.count ?? 0 })),
+  searchAssets: (dsl: string, type = "", limit = 50, offset = 0, source = "") =>
+    get<{ count: number; total: number; assets: Asset[] }>(
+      `/assets?dsl=${encodeURIComponent(dsl)}${type ? `&type=${encodeURIComponent(type)}` : ""}${source ? `&source=${encodeURIComponent(source)}` : ""}&limit=${limit}&offset=${offset}`,
+    ).then((r) => ({ assets: r?.assets ?? [], total: r?.total ?? r?.count ?? 0 })),
+  assetSources: () =>
+    get<{ sources: { source: string; count: number }[] }>("/assets/sources").then((r) => r?.sources ?? []),
   assetCounts: (taskId = "") =>
     get<Record<string, number>>(`/assets/counts${taskId ? `?task_id=${encodeURIComponent(taskId)}` : ""}`),
   deleteAssets: (ids: number[]) =>

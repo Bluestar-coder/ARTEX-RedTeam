@@ -87,6 +87,11 @@ function MethodBadge({ method }: { method: string }) {
   );
 }
 
+function fmtObserved(v?: string) {
+  if (!v) return "—";
+  return v.replace("T", " ").slice(0, 19);
+}
+
 function statusTone(code: number) {
   if (code >= 500) return "text-red-500";
   if (code >= 400) return "text-amber-500";
@@ -114,6 +119,8 @@ export default function AssetsPage() {
   const [counts, setCounts] = React.useState<Record<string, number>>({});
   const [tab, setTab] = React.useState("company");
   const [query, setQuery] = React.useState("");
+  const [source, setSource] = React.useState("");
+  const [sources, setSources] = React.useState<{ source: string; count: number }[]>([]);
   const [loaded, setLoaded] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
   const [page, setPage] = React.useState(0);
@@ -147,6 +154,12 @@ export default function AssetsPage() {
       .then(setCounts)
       .catch(() => {
         /* Keep the last successful counters on a transient failure. */
+      });
+    api
+      .assetSources()
+      .then(setSources)
+      .catch(() => {
+        /* Keep the last successful source snapshot on a transient failure. */
       });
   }, []);
 
@@ -240,7 +253,7 @@ export default function AssetsPage() {
   }, [tab]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: these controls intentionally reset server pagination.
-  React.useEffect(() => setPage(0), [tab, size, query]);
+  React.useEffect(() => setPage(0), [tab, size, query, source]);
 
   const dslMode = query.trim() !== "";
 
@@ -254,7 +267,9 @@ export default function AssetsPage() {
     const offset = page * size;
     const run = async () => {
       try {
-        const r = dsl ? await api.searchAssets(dsl, tab, size, offset) : await api.assets(tab, size, offset);
+        const r = dsl
+          ? await api.searchAssets(dsl, tab, size, offset, source)
+          : await api.assets(tab, size, offset, source);
         if (assetsRequestRef.current !== request) return;
         setRows(r.assets);
         setRowsTab(tab);
@@ -278,7 +293,7 @@ export default function AssetsPage() {
       clearTimeout(tid);
       if (assetsRequestRef.current === request) assetsRequestRef.current++;
     };
-  }, [tab, page, size, query, refreshKey]);
+  }, [tab, page, size, query, source, refreshKey]);
 
   React.useEffect(() => {
     if (tab === "company") return;
@@ -327,6 +342,19 @@ export default function AssetsPage() {
               <Trash2Icon className="size-3.5" /> 删除已选 ({selected.size})
             </Button>
           )}
+          <Select value={source || "__all"} onValueChange={(v) => setSource(v === "__all" ? "" : v)}>
+            <SelectTrigger size="sm" className="w-40">
+              <SelectValue placeholder="全部来源" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all">全部来源</SelectItem>
+              {sources.map((item) => (
+                <SelectItem key={item.source} value={item.source}>
+                  {item.source}（{item.count}）
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Button variant="outline" size="sm" onClick={refresh} disabled={loading}>
             <RefreshCwIcon className={cn("size-4", loading && "animate-spin")} /> 刷新
           </Button>
@@ -420,7 +448,7 @@ export default function AssetsPage() {
         <TabsContent value="root_domain" className="mt-0 flex min-h-0 flex-1 flex-col gap-2">
           {searchBox}
           <AssetCard
-            cols={["", "域名", "ICP 备案", "归属企业", ""]}
+            cols={["", "域名", "ICP 备案", "归属企业", "来源", "观测时间", ""]}
             loaded={loaded}
             total={total}
             page={page}
@@ -440,6 +468,12 @@ export default function AssetsPage() {
                 <TableCell className="text-xs">{a.icp || "—"}</TableCell>
                 <TableCell className="text-xs">
                   {companyName(a.company_id) || <span className="text-muted-foreground">未归属</span>}
+                </TableCell>
+                <TableCell>
+                  <SourceBadge source={a.source} />
+                </TableCell>
+                <TableCell className="font-mono text-xs tabular-nums" title={a.observed_at}>
+                  {fmtObserved(a.observed_at)}
                 </TableCell>
                 <TableCell className="w-8 pl-0">
                   <Button
@@ -461,7 +495,7 @@ export default function AssetsPage() {
         <TabsContent value="ip" className="mt-0 flex min-h-0 flex-1 flex-col gap-2">
           {searchBox}
           <AssetCard
-            cols={["", "IP", "C段", "绑定域名", "开放端口", ""]}
+            cols={["", "IP", "C段", "绑定域名", "开放端口", "来源", "观测时间", ""]}
             loaded={loaded}
             total={total}
             page={page}
@@ -488,6 +522,12 @@ export default function AssetsPage() {
                     mono
                   />
                 </TableCell>
+                <TableCell>
+                  <SourceBadge source={a.source} />
+                </TableCell>
+                <TableCell className="font-mono text-xs tabular-nums" title={a.observed_at}>
+                  {fmtObserved(a.observed_at)}
+                </TableCell>
                 <TableCell className="w-8 pl-0">
                   <Button
                     variant="ghost"
@@ -508,7 +548,7 @@ export default function AssetsPage() {
         <TabsContent value="subdomain" className="mt-0 flex min-h-0 flex-1 flex-col gap-2">
           {searchBox}
           <AssetCard
-            cols={["", "域名", "根域名", "解析类型", "解析值", ""]}
+            cols={["", "域名", "根域名", "解析类型", "解析值", "来源", "观测时间", ""]}
             loaded={loaded}
             total={total}
             page={page}
@@ -529,6 +569,12 @@ export default function AssetsPage() {
                 <TableCell className="text-xs">{a.record_type || "—"}</TableCell>
                 <TableCell className="max-w-xs truncate font-mono text-xs">
                   {(Array.isArray(a.record_value) ? a.record_value.join(", ") : a.record_value) || "—"}
+                </TableCell>
+                <TableCell>
+                  <SourceBadge source={a.source} />
+                </TableCell>
+                <TableCell className="font-mono text-xs tabular-nums" title={a.observed_at}>
+                  {fmtObserved(a.observed_at)}
                 </TableCell>
                 <TableCell className="w-8 pl-0">
                   <Button
@@ -590,7 +636,7 @@ export default function AssetsPage() {
         <TabsContent value="service" className="mt-0 flex min-h-0 flex-1 flex-col gap-2">
           {searchBox}
           <AssetCard
-            cols={["", "服务", "域名", "IP", "端口", "状态码", "标题", "指纹", "认证", ""]}
+            cols={["", "服务", "域名", "IP", "端口", "状态码", "标题", "指纹", "认证", "来源", "观测时间", ""]}
             loaded={loaded}
             total={total}
             page={page}
@@ -664,6 +710,12 @@ export default function AssetsPage() {
                         );
                       })
                     )}
+                  </TableCell>
+                  <TableCell>
+                    <SourceBadge source={a.source} />
+                  </TableCell>
+                  <TableCell className="font-mono text-xs tabular-nums" title={a.observed_at}>
+                    {fmtObserved(a.observed_at)}
                   </TableCell>
                   <TableCell className="w-8 pl-0">
                     <Button
@@ -807,6 +859,15 @@ export default function AssetsPage() {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+function SourceBadge({ source }: { source?: string }) {
+  if (!source) return <span className="text-xs text-muted-foreground">—</span>;
+  return (
+    <Badge variant="secondary" className="font-mono text-[10px]">
+      {source}
+    </Badge>
   );
 }
 
