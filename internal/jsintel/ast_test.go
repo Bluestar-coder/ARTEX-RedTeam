@@ -112,3 +112,13 @@ func TestASTParseFailureIsReported(t *testing.T) {
 		t.Fatalf("expected parse failure")
 	}
 }
+
+func TestASTOptionsVariable(t *testing.T) {
+	a := analyzeOne(t, `const opts = {method: "POST"}; fetch("/api/x", opts); const cfg = {url: "/api/y", method: "put"}; $.ajax(cfg);`)
+	if it := findASTIface(a, "POST", "/api/x"); it == nil || it.Confidence != ConfidenceHigh {
+		t.Fatalf("fetch options variable missing/high: %+v", a.Interfaces)
+	}
+	if it := findASTIface(a, "PUT", "/api/y"); it == nil {
+		t.Fatalf("jquery ajax config variable missing: %+v", a.Interfaces)
+	}
+}

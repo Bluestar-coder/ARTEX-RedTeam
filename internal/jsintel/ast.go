@@ -360,6 +360,41 @@ func evalDesc(d desc, consts map[string]constEntry, bases map[string]desc, hops 
 	return "", nil, false, []string{d.note}
 }
 
+func resolveObject(d desc, consts map[string]constEntry, bases map[string]desc, hops int) (desc, bool) {
+	for hops < 5 && d.kind == dIdent {
+		c, ok := consts[d.name]
+		if !ok {
+			b, bok := bases[d.name]
+			if !bok {
+				return desc{}, false
+			}
+			d = b
+			hops++
+			continue
+		}
+		d = c.value
+		hops++
+	}
+	if d.kind == dObject {
+		return d, true
+	}
+	return desc{}, false
+}
+
+// descToExpr is only used for object-literal values that originally came from
+// AST nodes; it reconstructs a minimal LiteralExpr for method/url lookup.
+func descToExpr(d desc) js.IExpr {
+	switch d.kind {
+	case dLiteral:
+		return js.LiteralExpr{TokenType: js.StringToken, Data: []byte(strconv.Quote(d.lit))}
+	case dIdent:
+		// A variable reference cannot be rebuilt without the original node; the
+		// caller already resolves identifier chains via resolveObject.
+		return nil
+	}
+	return nil
+}
+
 func isRuntimeName(name string) bool {
 	switch name {
 	case "process", "window", "document", "globalThis", "location", "navigator", "this", "import", "require":
@@ -437,24 +472,41 @@ func analyzeCall(af *astFile, call *js.CallExpr, consts map[string]constEntry, b
 		out = append(out, *it)
 	}
 
-	methodFromOpts := func(obj *js.ObjectExpr) string {
-		if p := objectProp(obj, "method"); p != nil {
-			if v, _, _, _ := evalDesc(toDesc(p), consts, bases, 0); v != "" {
-				return strings.ToUpper(v)
+	methodFromExpr := func(e js.IExpr) string {
+		if e == nil {
+			return "unknown"
+		}
+		d := toDesc(e)
+		if obj, ok := resolveObject(d, consts, bases, 0); ok {
+			if p, ok := obj.obj["method"]; ok {
+				if v, _, _, _ := evalDesc(p, consts, bases, 0); v != "" {
+					return strings.ToUpper(v)
+				}
 			}
 		}
+		if v, _, _, _ := evalDesc(d, consts, bases, 0); v != "" && validVerb(strings.ToUpper(v)) {
+			return strings.ToUpper(v)
+		}
 		return "unknown"
+	}
+	objectFromExpr := func(e js.IExpr, key string) js.IExpr {
+		if e == nil {
+			return nil
+		}
+		d := toDesc(e)
+		if obj, ok := resolveObject(d, consts, bases, 0); ok {
+			if p, ok := obj.obj[key]; ok {
+				return descToExpr(p)
+			}
+		}
+		return nil
 	}
 
 	switch {
 	case callee == "fetch" || callee == "window.fetch":
-		var opts *js.ObjectExpr
-		if len(args) > 1 {
-			opts, _ = args[1].Value.(*js.ObjectExpr)
-		}
 		method := "unknown"
-		if opts != nil {
-			method = methodFromOpts(opts)
+		if len(args) > 1 {
+			method = methodFromExpr(args[1].Value)
 		}
 		add(args[0].Value, method, "ast_fetch", false)
 	case strings.HasPrefix(callee, "axios.") && len(args) > 0:
@@ -477,10 +529,8 @@ func analyzeCall(af *astFile, call *js.CallExpr, consts map[string]constEntry, b
 		add(args[0].Value, "POST", "ast_jquery", false)
 	case callee == "$.ajax" || callee == "jQuery.ajax":
 		if len(args) > 0 {
-			if obj, ok := args[0].Value.(*js.ObjectExpr); ok {
-				if u := objectProp(obj, "url"); u != nil {
-					add(u, methodFromOpts(obj), "ast_jquery_ajax", false)
-				}
+			if u := objectFromExpr(args[0].Value, "url"); u != nil {
+				add(u, methodFromExpr(args[0].Value), "ast_jquery_ajax", false)
 			}
 		}
 	default:
@@ -509,10 +559,8 @@ func analyzeCall(af *astFile, call *js.CallExpr, consts map[string]constEntry, b
 		}
 		// {url: ..., method: ...} passed directly to a request-like helper
 		if len(args) > 0 {
-			if obj, ok := args[0].Value.(*js.ObjectExpr); ok {
-				if u := objectProp(obj, "url"); u != nil {
-					add(u, methodFromOpts(obj), "ast_config_object", false)
-				}
+			if u := objectFromExpr(args[0].Value, "url"); u != nil {
+				add(u, methodFromExpr(args[0].Value), "ast_config_object", false)
 			}
 		}
 	}
