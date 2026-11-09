@@ -341,7 +341,15 @@ func (s *Server) listAssets(w http.ResponseWriter, r *http.Request) {
 	// beyond the last row can return an empty page without an expensive scan.
 	total := 0
 
-	if dsl := q.Get("dsl"); dsl != "" {
+	source := strings.TrimSpace(q.Get("source"))
+	if source != "" {
+		companyID, _ := strconv.ParseInt(q.Get("company_id"), 10, 64)
+		taskID, _ := strconv.ParseInt(q.Get("task_id"), 10, 64)
+		total, err = as.CountBySource(source, typ, companyID, taskID)
+		if err == nil && offset < total {
+			assets, err = as.QueryBySource(source, typ, companyID, taskID, limit, offset)
+		}
+	} else if dsl := q.Get("dsl"); dsl != "" {
 		if err := db.ValidateDSL(dsl); err != nil {
 			writeErr(w, http.StatusBadRequest, err.Error())
 			return
@@ -416,6 +424,22 @@ func (s *Server) assetCounts(w http.ResponseWriter, r *http.Request) {
 // =====================================================================
 // DELETE /api/assets
 // =====================================================================
+
+// GET /api/assets/sources
+// Lists recon provenance sources with asset counts, for the asset page filter.
+func (s *Server) assetSources(w http.ResponseWriter, r *http.Request) {
+	as := s.assetStore()
+	if as == nil {
+		writeErr(w, 503, "database unavailable")
+		return
+	}
+	counts, err := as.SourceCounts()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeOK(w, map[string]any{"sources": counts})
+}
 
 func (s *Server) deleteAssets(w http.ResponseWriter, r *http.Request) {
 	as := s.assetStore()

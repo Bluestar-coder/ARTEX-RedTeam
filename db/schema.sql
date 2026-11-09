@@ -108,6 +108,12 @@ ALTER TABLE assets ALTER COLUMN company_source SET NOT NULL;
 ALTER TABLE assets DROP CONSTRAINT IF EXISTS assets_company_source_check;
 ALTER TABLE assets ADD CONSTRAINT assets_company_source_check
     CHECK (company_source IN ('explicit','scope'));
+
+-- M1 recon provenance: which provider last observed this asset and when.
+-- Additive migration for existing installs; empty source = not from recon.
+ALTER TABLE assets ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT '';
+ALTER TABLE assets ADD COLUMN IF NOT EXISTS observed_at TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS idx_av2_source ON assets(source) WHERE source <> '';
 DROP TRIGGER IF EXISTS trg_av2_upd ON assets;
 CREATE TRIGGER trg_av2_upd BEFORE UPDATE ON assets
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();

@@ -11,6 +11,7 @@ func (s *Server) registerAssetsRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/assets", s.listAssets)
 
 	mux.HandleFunc("GET /api/assets/counts", s.assetCounts)
+	mux.HandleFunc("GET /api/assets/sources", s.assetSources)
 
 	mux.HandleFunc("POST /api/assets", s.insertAssets)
 

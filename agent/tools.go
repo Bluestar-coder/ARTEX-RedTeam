@@ -2025,5 +2025,7 @@ func (t *ToolSet) PlannerTools() []actool.CoreTool {
 		t.addTaskScope(),
 		// list_untested_assets：按需查本任务范围内未测资产(类型+分页)，自行决定补测。
 		t.listUntestedAssets(),
+		// run_recon：M1 侦察触发（子域枚举 + 存活/指纹 -> 资产库）。
+		t.runRecon(),
 	}
 }
