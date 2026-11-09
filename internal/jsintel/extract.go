@@ -300,7 +300,12 @@ func Extract(host, pageURL, scriptURL, text string) Result {
 		} else if strings.Contains(expr, "+") {
 			rule = "config_object_fold"
 		}
-		addEval(expr, method, rule, m[0], "", nil)
+		addEval(expr, method, rule, m[0], "", func(path string) bool {
+			if strings.Contains(path, "://") && hostOfValue(path) != host {
+				return isAPIishPath(path)
+			}
+			return method != "unknown" || isAPIishPath(path)
+		})
 	}
 
 	// RULE_CONFIG_END
@@ -713,6 +718,10 @@ func isRouteConfigPrev(text string, start int) bool {
 	if lo < 0 {
 		lo = 0
 	}
+	lo = start - 300
+	if lo < 0 {
+		lo = 0
+	}
 	prev := text[lo:start]
-	return regexp.MustCompile("(?i)(?:source|destination|paths?|route|redirect)\\s*:\\s*[\\[\"']?$").MatchString(prev)
+	return regexp.MustCompile("(?i)(?:source|destination|paths?|route|redirect)\\s*:\\s*[\\[\"']").MatchString(prev) && strings.Contains(prev, "/")
 }
