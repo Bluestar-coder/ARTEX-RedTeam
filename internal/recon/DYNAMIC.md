@@ -78,9 +78,9 @@ HTTP 请求/CONNECT **先做 Scope 校验**：
 ### 1. cloudflare：10 页，接口 3 → 4
 
 ```text
-[recon] provider=dynamic page=https://www.cloudflare.com/ duration=51.139s
+[recon] provider=dynamic page=https://www.cloudflare.com/ duration=56.485s
   pages=10 max_pages=10 max_memory_mb=512 concurrency=1 processes=1
-  observed=1420 xhr_fetch=4 blocked=21
+  observed=1363 xhr_fetch=4 blocked=23
 
 pages_visited=[/, /products, /solutions, /resource-hub, /plans,
   /under-attack-hotline, /resource/contact-enterprise-sales, /partners, /startups, /domains]
@@ -104,11 +104,11 @@ blocked https://static.ads-twitter.com
 ...
 ```
 
-### 2. figma：10 页，动态接口 7
+### 2. figma：10 页，动态接口 6
 
 ```text
-[recon] provider=dynamic page=https://www.figma.com/ duration=33.68s
-  pages=10 xhr_fetch=7 blocked=16
+[recon] provider=dynamic page=https://www.figma.com/ duration=33.72s
+  pages=10 xhr_fetch=6 blocked=16
 ```
 
 其中包含 `POST /api/figment-proxy/monitor`、`POST /api/figment-proxy/page`、
