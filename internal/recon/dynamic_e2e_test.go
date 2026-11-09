@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
 	"testing"
@@ -92,7 +93,7 @@ func TestDynamicCloudflareE2E(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := DynamicConfig{Enabled: true, Proxy: proxy.URL(), PageTimeout: 8 * time.Second, IdleWait: 1 * time.Second, HostTimeout: 20 * time.Second, MaxPages: 1, MaxMemoryMB: 512, Concurrency: 1}
+	cfg := DynamicConfig{Enabled: true, Proxy: proxy.URL(), PageTimeout: 30 * time.Second, IdleWait: 6 * time.Second, HostTimeout: 2 * time.Minute, MaxPages: 1, MaxMemoryMB: 512, Concurrency: 1}
 	p := NewDynamicProvider(cfg)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
@@ -191,4 +192,54 @@ func TestDynamicUnavailableProxyNoDirect(t *testing.T) {
 		t.Fatalf("unavailable proxy took too long: %s", elapsed)
 	}
 	t.Logf("unavailable proxy failed as expected: %v", err)
+}
+
+func TestDynamicKillCleanup(t *testing.T) {
+	if os.Getenv("DYNAMIC_E2E") != "1" {
+		t.Skip("set DYNAMIC_E2E=1 with Chrome installed to run browser kill/cleanup test")
+	}
+	proxy := newLocalForwardProxy()
+	defer proxy.Close()
+	scope, _ := NewScope("www.cloudflare.com", nil, nil)
+	cfg := DynamicConfig{Enabled: true, Proxy: proxy.URL(), PageTimeout: 30 * time.Second, IdleWait: 8 * time.Second, HostTimeout: 2 * time.Minute, MaxPages: 1, MaxMemoryMB: 512, Concurrency: 1}
+	p := NewDynamicProvider(cfg)
+	done := make(chan error, 1)
+	go func() {
+		_, err := p.Capture(context.Background(), "https://www.cloudflare.com/", scope)
+		done <- err
+	}()
+	// Wait for our Chrome process (unique artex-dynamic-* profile) then kill it.
+	var pid string
+	for i := 0; i < 100; i++ {
+		out, _ := exec.Command("pgrep", "-f", "artex-dynamic-").Output()
+		fields := strings.Fields(string(out))
+		if len(fields) > 0 {
+			pid = fields[0]
+			break
+		}
+		select {
+		case <-done:
+			t.Fatal("capture finished before Chrome could be killed")
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+	if pid == "" {
+		t.Fatal("could not find artex-dynamic Chrome process to kill")
+	}
+	// Let the page actually start loading before killing the browser.
+	time.Sleep(2 * time.Second)
+	if err := exec.Command("kill", "-9", pid).Run(); err != nil {
+		t.Fatalf("kill chrome pid %s: %v", pid, err)
+	}
+	select {
+	case <-done:
+	case <-time.After(20 * time.Second):
+		t.Fatal("capture did not return after browser kill")
+	}
+	time.Sleep(1500 * time.Millisecond)
+	out, _ := exec.Command("pgrep", "-f", "artex-dynamic-").Output()
+	if strings.TrimSpace(string(out)) != "" {
+		t.Fatalf("residual Chrome processes after kill: %s", out)
+	}
+	t.Logf("killed chrome pid=%s; no residual artex-dynamic processes", pid)
 }

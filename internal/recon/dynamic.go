@@ -110,6 +110,12 @@ func (c *DynamicConfig) applyDefaults() {
 
 // DynamicProvider captures real browser requests for the seed page. It is
 // registered as a normal provider but is disabled unless explicitly configured.
+// dynamicBrowserSem is a process-wide hard cap on concurrent browser
+// instances. The per-provider semaphore still enforces the configured limit;
+// this one makes "default 1" true even when several tool calls create their own
+// provider instances.
+var dynamicBrowserSem = make(chan struct{}, 1)
+
 type DynamicProvider struct {
 	cfg DynamicConfig
 	sem chan struct{}
@@ -187,6 +193,12 @@ func (p *DynamicProvider) Capture(ctx context.Context, pageURL string, scope Sco
 	select {
 	case p.sem <- struct{}{}:
 		defer func() { <-p.sem }()
+	case <-ctx.Done():
+		return out, ctx.Err()
+	}
+	select {
+	case dynamicBrowserSem <- struct{}{}:
+		defer func() { <-dynamicBrowserSem }()
 	case <-ctx.Done():
 		return out, ctx.Err()
 	}
