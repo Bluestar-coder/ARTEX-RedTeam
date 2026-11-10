@@ -14,9 +14,11 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Bluestar-coder/ARTEX-RedTeam/agent"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/config"
 	pgdb "github.com/Bluestar-coder/ARTEX-RedTeam/db"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/enrich"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/guard"
@@ -59,6 +61,8 @@ type Task struct {
 	Status             string  `json:"status"` // persisted lifecycle status (done/failed/timeout 为终态；空/其它则由运行态推导)
 	// 任务级超时。DeadlineAt/FirstRunAt 为 unix 秒,0=未设/未运行。
 	TimeoutSeconds       int                    `json:"timeout_seconds"`
+	ToolCallBudget       int                    `json:"tool_call_budget"`       // 0=默认，任务级覆盖
+	LLMCallBudget        int                    `json:"llm_call_budget"`        // 0=默认，任务级覆盖
 	PlanHeartbeatSeconds int                    `json:"plan_heartbeat_seconds"` // planner 心跳触发间隔(秒)
 	CoverageEnabled      bool                   `json:"coverage_enabled"`       // 资产覆盖度功能开关(创建时定,默认开)
 	FirstRunAt           int64                  `json:"first_run_at,omitempty"`
@@ -80,6 +84,10 @@ type Task struct {
 	// without a schema change.
 	reconMu      sync.RWMutex
 	reconSummary string
+
+	toolCalls atomic.Int64
+	llmCalls  atomic.Int64
+	budgetHit atomic.Bool
 }
 
 // SetReconSummary records the pre-planner recon phase summary for API display.
@@ -101,6 +109,46 @@ func (t *Task) ReconSummary() string {
 	defer t.reconMu.RUnlock()
 	return t.reconSummary
 }
+
+func envBudget(suffix string, def int) int {
+	if n, err := strconv.Atoi(config.Env(suffix)); err == nil && n > 0 {
+		return n
+	}
+	return def
+}
+
+// EffectiveToolCallBudget returns the task override or the system default.
+func (t *Task) EffectiveToolCallBudget() int {
+	if t != nil && t.ToolCallBudget > 0 {
+		return t.ToolCallBudget
+	}
+	return envBudget("TOOL_CALL_BUDGET", 200)
+}
+
+// EffectiveLLMCallBudget returns the task override or the system default.
+func (t *Task) EffectiveLLMCallBudget() int {
+	if t != nil && t.LLMCallBudget > 0 {
+		return t.LLMCallBudget
+	}
+	return envBudget("LLM_CALL_BUDGET", 100)
+}
+
+func (t *Task) AddToolCall() int64 { return t.toolCalls.Add(1) }
+func (t *Task) AddLLMCall() int64  { return t.llmCalls.Add(1) }
+func (t *Task) ToolCalls() int     { return int(t.toolCalls.Load()) }
+func (t *Task) LLMCalls() int      { return int(t.llmCalls.Load()) }
+
+// BudgetExceeded reports whether either call budget has been reached.
+func (t *Task) BudgetExceeded() bool {
+	if t == nil {
+		return false
+	}
+	return t.ToolCalls() >= t.EffectiveToolCallBudget() || t.LLMCalls() >= t.EffectiveLLMCallBudget()
+}
+
+// MarkBudgetStop makes the budget stop idempotent across planner/worker paths.
+func (t *Task) MarkBudgetStop() bool      { return t != nil && t.budgetHit.CompareAndSwap(false, true) }
+func (t *Task) BudgetStopRequested() bool { return t != nil && t.budgetHit.Load() }
 
 // taskLifecycleState is an internally consistent view of the mutable task
 // lifecycle and inherited-scope context. Callers must use lifecycleSnapshot and
@@ -998,9 +1046,10 @@ func taskFromPG(pt *pgdb.Task, store *pgdb.ExplorationStore, ic *intercept.Inter
 		LLMFailoverState: pt.LLMFailoverState, LLMFailoverReason: pt.LLMFailoverReason,
 		SourceTaskIDs:  append([]int64(nil), pt.SourceTaskIDs...),
 		CompanyIDs:     append([]int64(nil), pt.CompanyIDs...),
-		TimeoutSeconds: pt.TimeoutSeconds, PlanHeartbeatSeconds: pt.PlanHeartbeatSeconds,
-		CoverageEnabled: pt.CoverageEnabled,
-		FirstRunAt:      unixOrZero(pt.FirstRunAt), DeadlineAt: unixOrZero(pt.DeadlineAt),
+		TimeoutSeconds: pt.TimeoutSeconds, ToolCallBudget: pt.ToolCallBudget, LLMCallBudget: pt.LLMCallBudget,
+		PlanHeartbeatSeconds: pt.PlanHeartbeatSeconds,
+		CoverageEnabled:      pt.CoverageEnabled,
+		FirstRunAt:           unixOrZero(pt.FirstRunAt), DeadlineAt: unixOrZero(pt.DeadlineAt),
 		Store: store, Guard: guard.NewWithInterceptor(ic), notify: make(chan struct{}, 1),
 	}
 }

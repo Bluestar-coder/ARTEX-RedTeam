@@ -638,6 +638,14 @@ func (e *Engine) Broadcaster() *Broadcaster { return e.bc }
 // emitActivity persists one captured step AND fans it out to live subscribers,
 // from a single point so storage and the SSE stream never diverge.
 func (e *Engine) emitActivity(t *Task, r db.Activity) db.Activity {
+	if t != nil {
+		switch r.Kind {
+		case "tool_use":
+			t.AddToolCall()
+		case "usage":
+			t.AddLLMCall()
+		}
+	}
 	id, err := e.appendActivity(t, r)
 	if err != nil {
 		// NO LONGER SILENT: dropping a record breaks command↔result pairing in the
@@ -838,6 +846,9 @@ func (e *Engine) plannerLoop(ctx context.Context, t *Task) {
 		if e.isSettling(t.ID) {
 			return
 		}
+		if e.budgetExceeded(t) {
+			return
+		}
 		// goalless（人工直投）分支：任务已无 open 目标时 planner 不跑——跑了会重判
 		// met→cancelExec 杀掉用户经主 agent 直投的意图。是否结束改由 frontier 决定：
 		// 还有 open/running 意图 → 保持 running、静默等待；意图已全部跑干 → 落 done。
@@ -879,6 +890,10 @@ func (e *Engine) plannerLoop(ctx context.Context, t *Task) {
 		e.BeginLLMCall(t.ID)
 		met, reason, err := planner.Plan(ectx, taskIDInt, e.m.assets, t.Store, t.Goal, triggers, emit)
 		e.EndLLMCall(t.ID)
+		if e.budgetExceeded(t) {
+			e.touch(t.ID)
+			return
+		}
 		switch {
 		case err != nil && ectx.Err() == nil:
 			log.Printf("[planner] task %s 规划出错: %v", t.ID, err)
@@ -910,6 +925,63 @@ func (e *Engine) plannerLoop(ctx context.Context, t *Task) {
 		}
 		// 每次唤醒(边沿或心跳)后重臂心跳:任意规划触发都重算这段静置计时。
 		resetPlannerTimer(heartbeat, interval)
+	}
+}
+
+// budgetExceeded is the single budget gate for planner dispatch and worker
+// claiming. Hitting either limit stops new intents but lets running intents
+// finish writing their results before the task becomes terminal.
+func (e *Engine) budgetExceeded(t *Task) bool {
+	if t == nil {
+		return false
+	}
+	if t.BudgetStopRequested() {
+		return true
+	}
+	if !t.BudgetExceeded() {
+		return false
+	}
+	if t.MarkBudgetStop() {
+		e.emitActivity(t, db.Activity{Worker: "system", Kind: "text",
+			Summary: fmt.Sprintf("预算耗尽：工具调用 %d/%d，LLM 调用 %d/%d；停止派新意图，等待在跑意图收尾",
+				t.ToolCalls(), t.EffectiveToolCallBudget(), t.LLMCalls(), t.EffectiveLLMCallBudget())})
+		go e.settleBudget(t)
+	}
+	return true
+}
+
+// settleBudget mirrors the timeout settle sequence but has no final planner round:
+// the budget is already spent, so wait for in-flight work to write back, then mark
+// the task budget_exhausted. No results are killed by the budget itself.
+func (e *Engine) settleBudget(t *Task) {
+	if t == nil || isTerminalStatus(e.m.TaskStatus(t.ID)) {
+		return
+	}
+	if e.isSettling(t.ID) || !e.markSettling(t.ID) {
+		return
+	}
+	log.Printf("[budget] task %s 预算耗尽，等待在跑意图收尾", t.ID)
+	hardStop := time.Now().Add(settleDrainGrace)
+	for e.inflightCount(t.ID) > 0 {
+		if time.Now().After(hardStop) {
+			log.Printf("[budget] task %s drain 超时(%s),硬取消在跑 run", t.ID, settleDrainGrace)
+			e.cancelExec(t.ID, agent.AbortSettleDrainTimeout)
+			break
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	status := "budget_exhausted"
+	won, err := e.m.SetTaskStatusGuarded(t.ID, status)
+	switch {
+	case err != nil:
+		log.Printf("[budget] task %s 落终态失败: %v", t.ID, err)
+	case won:
+		e.emitActivity(t, db.Activity{Worker: "system", Kind: "result",
+			Summary: fmt.Sprintf("任务预算耗尽：工具 %d/%d，LLM %d/%d；已停止派发新意图",
+				t.ToolCalls(), t.EffectiveToolCallBudget(), t.LLMCalls(), t.EffectiveLLMCallBudget())})
+		log.Printf("[budget] task %s 收尾完成,终态=%s", t.ID, status)
+	default:
+		log.Printf("[budget] task %s 收尾时已是终态,保留原状态", t.ID)
 	}
 }
 
@@ -947,6 +1019,12 @@ func (e *Engine) workerLoop(ctx context.Context, t *Task, name string) {
 				return
 			}
 			continue // 任务已终态(done/failed/timeout):停止领取遗留意图,别在完成后空跑 frontier
+		}
+		if e.budgetExceeded(t) {
+			if sleepCtx(ctx, 500*time.Millisecond) {
+				return
+			}
+			continue // 预算耗尽：不再领新意图，settleBudget 等在跑意图收尾
 		}
 		if !e.beginTaskOperation(t.ID) {
 			return

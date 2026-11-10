@@ -432,6 +432,12 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 	if req.TimeoutSeconds < 0 {
 		req.TimeoutSeconds = 0
 	}
+	if req.ToolCallBudget < 0 {
+		req.ToolCallBudget = 0
+	}
+	if req.LLMCallBudget < 0 {
+		req.LLMCallBudget = 0
+	}
 	if len(req.SourceTaskIDs) > db.MaxTaskSourceCount {
 		writeErr(w, 400, fmt.Sprintf("关联任务最多选择 %d 个", db.MaxTaskSourceCount))
 		return
@@ -465,9 +471,10 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 	t, err := s.m.CreateTaskWithOptions(req.Description, req.Goal, db.TaskCreateOptions{
 		Name: strings.TrimSpace(req.Name), CategoryID: req.CategoryID,
 		SourceTaskIDs: sourceIDs, CompanyIDs: req.CompanyIDs, LLMProfileIDs: req.LLMProfileIDs,
-		TimeoutSeconds: req.TimeoutSeconds, PlanHeartbeatSeconds: req.PlanHeartbeatSeconds,
-		CoverageEnabled: req.CoverageEnabled,
-		InterceptRules:  interceptRules,
+		TimeoutSeconds: req.TimeoutSeconds, ToolCallBudget: req.ToolCallBudget, LLMCallBudget: req.LLMCallBudget,
+		PlanHeartbeatSeconds: req.PlanHeartbeatSeconds,
+		CoverageEnabled:      req.CoverageEnabled,
+		InterceptRules:       interceptRules,
 	})
 	if err != nil {
 		if errors.Is(err, db.ErrTaskCategoryInvalid) || errors.Is(err, db.ErrTaskCategoryNotFound) {
