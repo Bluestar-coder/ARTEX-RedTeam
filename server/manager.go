@@ -21,8 +21,8 @@ import (
 	"github.com/Bluestar-coder/ARTEX-RedTeam/enrich"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/guard"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/intercept"
-	"github.com/Bluestar-coder/ARTEX-RedTeam/proxypool"
 	actool "github.com/Bluestar-coder/ARTEX-RedTeam/norma/tool"
+	"github.com/Bluestar-coder/ARTEX-RedTeam/proxypool"
 	"github.com/Bluestar-coder/ARTEX-RedTeam/traffic"
 )
 
@@ -74,6 +74,32 @@ type Task struct {
 	// a burst into one round, so several may pile up before drainTriggers() clears them.
 	trigMu          sync.Mutex
 	pendingTriggers []agent.TriggerEvent
+
+	// reconSummary is the deterministic pre-phase summary. It is also persisted
+	// as a recon activity result; this in-memory copy keeps it on the task DTO
+	// without a schema change.
+	reconMu      sync.RWMutex
+	reconSummary string
+}
+
+// SetReconSummary records the pre-planner recon phase summary for API display.
+func (t *Task) SetReconSummary(summary string) {
+	if t == nil {
+		return
+	}
+	t.reconMu.Lock()
+	t.reconSummary = summary
+	t.reconMu.Unlock()
+}
+
+// ReconSummary returns the latest deterministic recon phase summary.
+func (t *Task) ReconSummary() string {
+	if t == nil {
+		return ""
+	}
+	t.reconMu.RLock()
+	defer t.reconMu.RUnlock()
+	return t.reconSummary
 }
 
 // taskLifecycleState is an internally consistent view of the mutable task
@@ -814,8 +840,12 @@ func (m *Manager) SetProxyEgressTrustedOnly(on bool) error {
 
 // proxyFetchMin / proxyCheckMin read the pool intervals (minutes), falling back to
 // defaults when unset or non-positive.
-func (m *Manager) proxyFetchMin() int { return m.settingIntDefault(settingProxyFetchMin, defaultProxyFetchMin) }
-func (m *Manager) proxyCheckMin() int { return m.settingIntDefault(settingProxyCheckMin, defaultProxyCheckMin) }
+func (m *Manager) proxyFetchMin() int {
+	return m.settingIntDefault(settingProxyFetchMin, defaultProxyFetchMin)
+}
+func (m *Manager) proxyCheckMin() int {
+	return m.settingIntDefault(settingProxyCheckMin, defaultProxyCheckMin)
+}
 
 // ProxyIntervals returns the fetch/check intervals in minutes (for the settings UI).
 func (m *Manager) ProxyIntervals() (fetchMin, checkMin int) {

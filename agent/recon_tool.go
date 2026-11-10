@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/Bluestar-coder/ARTEX-RedTeam/db"
@@ -42,52 +43,65 @@ func (t *ToolSet) runRecon() actool.CoreTool {
 			if domain == "" {
 				return actool.Errorf("domain 必填"), nil
 			}
-			if t.taskID > 0 {
-				scopes, err := t.as.ListTaskScope(t.taskID)
-				if err != nil {
-					return actool.Errorf("读取任务 scope 失败: " + err.Error()), nil
-				}
-				networkScope := false
-				for _, sc := range scopes {
-					switch sc.Kind {
-					case "root_domain", "subdomain", "ip", "cidr":
-						networkScope = true
-					}
-				}
-				if !networkScope {
-					return actool.Errorf("任务没有可用网络 scope（root_domain/subdomain/ip/cidr），拒绝执行 recon；请先在任务范围里添加目标"), nil
-				}
-			}
-			scope, err := recon.NewScope(domain, nil, a.Exclude)
+			out, err := performRecon(ctx, t.as, t.taskID, domain, a.Exclude, recon.ConfigFromEnv())
 			if err != nil {
 				return actool.Errorf(err.Error()), nil
 			}
-			cfg := recon.ConfigFromEnv()
-			registry := recon.DefaultRegistry(cfg, nil)
-			if len(registry.Providers()) == 0 {
-				return actool.Errorf("没有启用的 recon provider（检查 ARTEX_REDTEAM_RECON_ENABLED）"), nil
-			}
-			res := recon.Run(ctx, registry, domain, scope, cfg)
-			// The dynamic provider (when enabled) emits TypeInterface records.
-			// Interface facts belong to extract_js/extract_js_dynamic, not the
-			// asset graph; persisting them through UpsertReconAssets would reject
-			// the whole batch and silently drop the service/subdomain records too.
-			assetRecords := assetOnlyReconRecords(res.Records)
-			written, err := t.as.UpsertReconAssets(t.taskID, toDBReconAssets(assetRecords))
-			if err != nil {
-				return actool.Errorf("recon 落库失败: " + err.Error()), nil
-			}
-			return jsonResult(map[string]any{
-				"seed":               res.Seed,
-				"records":            len(res.Records),
-				"asset_records":      len(assetRecords),
-				"interfaces_skipped": len(res.Records) - len(assetRecords),
-				"written":            written,
-				"providers":          res.Providers,
-				"rejected":           res.Rejected,
-			})
+			return jsonResult(out)
 		},
 	)
+}
+
+// performRecon is the shared asset-discovery path used by the run_recon tool and
+// the deterministic pre-planner phase. Dynamic browser capture is deliberately
+// excluded here: run_recon is asset discovery, extract_js_dynamic owns browser
+// capture. Keeping them separate prevents a recon call from silently launching a
+// browser and from producing interface records that cannot be persisted as assets.
+func performRecon(ctx context.Context, as *db.AssetStore, taskID int64, domain string, exclude []string, cfg recon.Config) (map[string]any, error) {
+	if as == nil {
+		return nil, fmt.Errorf("run_recon 未启用: AssetStore 未初始化")
+	}
+	if taskID > 0 {
+		scopes, err := as.ListTaskScope(taskID)
+		if err != nil {
+			return nil, fmt.Errorf("读取任务 scope 失败: %w", err)
+		}
+		networkScope := false
+		for _, sc := range scopes {
+			switch sc.Kind {
+			case "root_domain", "subdomain", "ip", "cidr":
+				networkScope = true
+			}
+		}
+		if !networkScope {
+			return nil, fmt.Errorf("任务没有可用网络 scope（root_domain/subdomain/ip/cidr），拒绝执行 recon；请先在任务范围里添加目标")
+		}
+	}
+	scope, err := recon.NewScope(domain, nil, exclude)
+	if err != nil {
+		return nil, err
+	}
+	// Dynamic is a separate phase/tool; never run it from asset discovery.
+	cfg.Dynamic.Enabled = false
+	registry := recon.DefaultRegistry(cfg, nil)
+	if len(registry.Providers()) == 0 {
+		return nil, fmt.Errorf("没有启用的 recon provider（检查 ARTEX_REDTEAM_RECON_ENABLED）")
+	}
+	res := recon.Run(ctx, registry, domain, scope, cfg)
+	assetRecords := assetOnlyReconRecords(res.Records)
+	written, err := as.UpsertReconAssets(taskID, toDBReconAssets(assetRecords))
+	if err != nil {
+		return nil, fmt.Errorf("recon 落库失败: %w", err)
+	}
+	return map[string]any{
+		"seed":               res.Seed,
+		"records":            len(res.Records),
+		"asset_records":      len(assetRecords),
+		"interfaces_skipped": len(res.Records) - len(assetRecords),
+		"written":            written,
+		"providers":          res.Providers,
+		"rejected":           res.Rejected,
+	}, nil
 }
 
 // assetOnlyReconRecords drops interface records that the dynamic provider can
