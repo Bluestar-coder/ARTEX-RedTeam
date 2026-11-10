@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -25,6 +27,7 @@ func (t *ToolSet) extractJS() actool.CoreTool {
 			"返回本次扫描与落库统计；提取结果可在 graph_overview 的 js_intel 摘要与 node_detail(fact_id) 查看。",
 		obj(map[string]any{
 			"domain": str("目标域（范围约束：默认只允许该域及其子域；只会扫描范围内的存活 service 资产）"),
+			"url":    str("可选：只扫描这个 service URL（host:port）；用于多目标/多端口任务的 per-target 静态抽取"),
 			"exclude": map[string]any{"type": "array", "items": map[string]any{"type": "string"},
 				"description": "可选排除列表（域名/IP），命中的主机不会抓取"},
 			"limit":     intp("最多扫描多少个存活 HTTP service（默认 30，上限 200）"),
@@ -36,6 +39,7 @@ func (t *ToolSet) extractJS() actool.CoreTool {
 			}
 			var a struct {
 				Domain   string   `json:"domain"`
+				URL      string   `json:"url"`
 				Exclude  []string `json:"exclude"`
 				Limit    int      `json:"limit"`
 				IntentID int64    `json:"intent_id"`
@@ -60,6 +64,7 @@ func (t *ToolSet) extractJS() actool.CoreTool {
 			targets := make([]jsintel.Target, 0, len(services))
 			anchorsByHost := map[string][]int64{}
 			var skippedScope []map[string]any
+			filterPath := strings.TrimSpace(a.URL)
 			for _, svc := range services {
 				if svc.URL == "" {
 					continue
@@ -68,12 +73,21 @@ func (t *ToolSet) extractJS() actool.CoreTool {
 				if host == "" {
 					continue
 				}
-				if ok, reason := scope.Allow(host); !ok {
+				if filterPath != "" && !sameServiceURL(filterPath, svc.URL) {
+					continue
+				}
+				// A URL-scoped extraction is service-scoped: include the port in the
+				// fact identity so 127.0.0.1:3000 and 127.0.0.1:8081 never share a key.
+				factHost := serviceAddress(svc.URL)
+				if factHost == "" {
+					factHost = host
+				}
+				if ok, reason := scope.Allow(factHost); !ok {
 					skippedScope = append(skippedScope, map[string]any{"url": svc.URL, "reason": reason})
 					continue
 				}
-				targets = append(targets, jsintel.Target{Host: host, PageURL: svc.URL, AssetID: svc.ID})
-				anchorsByHost[host] = append(anchorsByHost[host], svc.ID)
+				targets = append(targets, jsintel.Target{Host: factHost, PageURL: svc.URL, AssetID: svc.ID})
+				anchorsByHost[factHost] = append(anchorsByHost[factHost], svc.ID)
 			}
 			if len(targets) == 0 {
 				return jsonResult(map[string]any{
@@ -169,6 +183,46 @@ func (t *ToolSet) extractJS() actool.CoreTool {
 	)
 }
 
+// serviceAddress returns host:port for a service URL. Facts use this as their
+// target identity; a bare host would merge distinct services on the same IP.
+func serviceAddress(rawURL string) string {
+	u, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || u.Hostname() == "" {
+		return ""
+	}
+	port := u.Port()
+	if port == "" {
+		if u.Scheme == "https" {
+			port = "443"
+		} else {
+			port = "80"
+		}
+	}
+	return net.JoinHostPort(u.Hostname(), port)
+}
+
+func sameServiceURL(a, b string) bool {
+	ua, err := url.Parse(strings.TrimSpace(a))
+	if err != nil {
+		return false
+	}
+	ub, err := url.Parse(strings.TrimSpace(b))
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(ua.Hostname(), ub.Hostname()) && servicePort(ua) == servicePort(ub)
+}
+
+func servicePort(u *url.URL) string {
+	if p := u.Port(); p != "" {
+		return p
+	}
+	if u.Scheme == "https" {
+		return "443"
+	}
+	return "80"
+}
+
 func firstSnippet(refs []jsintel.SourceRef) string {
 	if len(refs) == 0 {
 		return ""
@@ -194,6 +248,7 @@ func (t *ToolSet) jsIntelOverview(facts []*db.Node) map[string]any {
 	}
 	var ifaces []ifaceFact
 	byHost := map[string]int{}
+	byService := map[string]int{}
 	sensitiveTotal, obfuscatedTotal := 0, 0
 	for _, n := range facts {
 		var p map[string]any
@@ -204,7 +259,12 @@ func (t *ToolSet) jsIntelOverview(facts []*db.Node) map[string]any {
 		switch kind {
 		case "js_interface":
 			host, _ := p["host"].(string)
-			byHost[host]++
+			byService[host]++
+			hostOnly := host
+			if h, _, err := net.SplitHostPort(host); err == nil {
+				hostOnly = h
+			}
+			byHost[hostOnly]++
 			f := ifaceFact{ID: n.ID, Host: host}
 			if hs, ok := p["hosts"].([]any); ok {
 				for _, h := range hs {
@@ -306,14 +366,15 @@ func (t *ToolSet) jsIntelOverview(facts []*db.Node) map[string]any {
 		}
 	}
 	out := map[string]any{
-		"total_interfaces":   len(ifaces),
-		"by_confidence":      byConf,
-		"by_source":          bySource,
-		"interfaces_by_host": byHost,
-		"sensitive_total":    sensitiveTotal,
-		"obfuscated_total":   obfuscatedTotal,
-		"top_interfaces":     top,
-		"note":               "接口/敏感信息来自静态 JS 分析；dynamic 来源为无头浏览器真实抓到的请求（high）。含管理/上传/支付 tag 的接口与 sensitive_top 优先人工核对。",
+		"total_interfaces":      len(ifaces),
+		"by_confidence":         byConf,
+		"by_source":             bySource,
+		"interfaces_by_host":    byHost,
+		"interfaces_by_service": byService,
+		"sensitive_total":       sensitiveTotal,
+		"obfuscated_total":      obfuscatedTotal,
+		"top_interfaces":        top,
+		"note":                  "接口/敏感信息来自静态 JS 分析；dynamic 来源为无头浏览器真实抓到的请求（high）。interfaces_by_service 按 host:port 区分同一 IP 的多个服务；含管理/上传/支付 tag 的接口与 sensitive_top 优先人工核对。",
 	}
 	if len(sensitiveTop) > 0 {
 		out["sensitive_top"] = sensitiveTop

@@ -35,7 +35,7 @@ func TestDynamicKnownPagesFromAssetsAndFacts(t *testing.T) {
 	}
 	tsx := NewToolSet(d.Exploration(expID), "planner")
 	tsx.SetAssetStore(d.Assets(), d.Companies())
-	got := tsx.dynamicKnownPages("www.cloudflare.com")
+	got := tsx.dynamicKnownPages("www.cloudflare.com", "")
 	foundLogin, foundAccount := false, false
 	for _, u := range got {
 		t.Logf("candidate=%s", u)
@@ -54,4 +54,28 @@ func TestDynamicKnownPagesFromAssetsAndFacts(t *testing.T) {
 	}
 	// Keep JSON import used for future payload assertions.
 	_, _ = json.Marshal(got)
+}
+
+func TestDynamicKnownPagesIsServiceScoped(t *testing.T) {
+	d := testDB(t)
+	defer d.Close()
+	expID, err := d.CreateExploration("dynamic service scope", "page candidates")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, u := range []string{
+		"http://127.0.0.1:3000/admin",
+		"http://127.0.0.1:8081/admin",
+		"http://127.0.0.1:3000/api/items",
+	} {
+		if _, err := d.Assets().UpsertEndpoint(db.UpsertEndpointReq{URL: u, Method: "GET"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tsx := NewToolSet(d.Exploration(expID), "planner")
+	tsx.SetAssetStore(d.Assets(), d.Companies())
+	got := tsx.dynamicKnownPages("127.0.0.1", "http://127.0.0.1:3000/")
+	if len(got) != 1 || got[0] != "http://127.0.0.1:3000/admin" {
+		t.Fatalf("candidates=%v, want only :3000/admin", got)
+	}
 }

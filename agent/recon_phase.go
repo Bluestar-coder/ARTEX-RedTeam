@@ -53,12 +53,14 @@ func RunReconPhase(ctx context.Context, as *db.AssetStore, taskID int64, target 
 
 // RunStaticPhase executes extract_js for the domain/asset scope. It never invokes
 // the LLM; all extraction is the normal static analyzer.
-func RunStaticPhase(ctx context.Context, as *db.AssetStore, ts *db.ExplorationStore, taskID int64, domain string) PhaseResult {
+func RunStaticPhase(ctx context.Context, as *db.AssetStore, ts *db.ExplorationStore, taskID int64, domain, serviceURL string) PhaseResult {
 	start := time.Now()
 	res := PhaseResult{Step: "extract_js"}
-	out, err := callPhaseTool(ctx, phaseToolSet(as, ts, taskID).extractJS(), map[string]any{
-		"domain": domain, "limit": 30,
-	})
+	payload := map[string]any{"domain": domain, "limit": 30}
+	if serviceURL != "" {
+		payload["url"] = serviceURL
+	}
+	out, err := callPhaseTool(ctx, phaseToolSet(as, ts, taskID).extractJS(), payload)
 	res.Duration = time.Since(start)
 	res.Data = out
 	if err != nil {
@@ -77,12 +79,14 @@ func RunStaticPhase(ctx context.Context, as *db.AssetStore, ts *db.ExplorationSt
 // RunDynamicPhase executes extract_js_dynamic with the tool's normal default-page
 // resolution. The caller must only call it when the dynamic provider is enabled;
 // it is kept separate because of browser cost/risk.
-func RunDynamicPhase(ctx context.Context, as *db.AssetStore, ts *db.ExplorationStore, taskID int64, domain string) PhaseResult {
+func RunDynamicPhase(ctx context.Context, as *db.AssetStore, ts *db.ExplorationStore, taskID int64, domain, pageURL string) PhaseResult {
 	start := time.Now()
 	res := PhaseResult{Step: "extract_js_dynamic"}
-	out, err := callPhaseTool(ctx, phaseToolSet(as, ts, taskID).extractJSDynamic(), map[string]any{
-		"domain": domain,
-	})
+	payload := map[string]any{"domain": domain}
+	if pageURL != "" {
+		payload["url"] = pageURL
+	}
+	out, err := callPhaseTool(ctx, phaseToolSet(as, ts, taskID).extractJSDynamic(), payload)
 	res.Duration = time.Since(start)
 	res.Data = out
 	if err != nil {

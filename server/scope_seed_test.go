@@ -62,3 +62,29 @@ func hasScopeKind(scopes []db.TaskScope, kind, value string) bool {
 	}
 	return false
 }
+
+func TestTaskSeedCreatesScopePerTarget(t *testing.T) {
+	m, err := NewManager(t.TempDir(), "", "")
+	if err != nil {
+		t.Skipf("postgres unavailable (%v)", err)
+	}
+	t.Cleanup(func() { _ = m.Close() })
+	s := &Server{m: m}
+	task, err := m.CreateTask("multi scope", "goal", nil, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.seed(task, "targets http://one.example.com:3000/ http://two.example.org:8081/ http://10.9.8.7:8082/")
+	id, _ := strconv.ParseInt(task.ID, 10, 64)
+	scopes, err := m.Assets().ListTaskScope(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasScopeKind(scopes, "root_domain", "example.com") ||
+		!hasScopeKind(scopes, "subdomain", "one.example.com") ||
+		!hasScopeKind(scopes, "root_domain", "example.org") ||
+		!hasScopeKind(scopes, "subdomain", "two.example.org") ||
+		!hasScopeKind(scopes, "ip", "10.9.8.7/32") {
+		t.Fatalf("multi-target scopes missing: %+v", scopes)
+	}
+}
