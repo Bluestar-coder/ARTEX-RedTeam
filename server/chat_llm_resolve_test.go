@@ -15,7 +15,11 @@ func TestChatUnavailableReasonDistinguishesStates(t *testing.T) {
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) — skipping", err)
 	}
-	defer m.Close()
+	// Register manager close before newTestServer's cleanup: t.Cleanup is LIFO,
+	// so the server/engine stops first and this close runs last. A plain defer
+	// m.Close() would run before t.Cleanup, making the profile cleanup below hit
+	// a closed DB and leak the active profile into the shared test schema.
+	t.Cleanup(func() { _ = m.Close() })
 	td := t.TempDir()
 	s := newTestServer(t, m, td, td, td)
 
@@ -65,7 +69,7 @@ func TestResolveChatAgentHonoursConversationProfile(t *testing.T) {
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) — skipping", err)
 	}
-	defer m.Close()
+	t.Cleanup(func() { _ = m.Close() })
 	td := t.TempDir()
 	s := newTestServer(t, m, td, td, td)
 
