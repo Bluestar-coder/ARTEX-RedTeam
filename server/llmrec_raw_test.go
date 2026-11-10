@@ -23,7 +23,7 @@ func TestRecorderPersistsRawWireBodies(t *testing.T) {
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) — skipping", err)
 	}
-	defer m.Close()
+	t.Cleanup(func() { _ = m.Close() })
 	pg := m.PG()
 	if err := pg.EnsureLLMRecordsTable(); err != nil {
 		t.Fatalf("ensure table: %v", err)
@@ -66,9 +66,9 @@ func TestRecorderPersistsRawWireBodies(t *testing.T) {
 	const session = "exp999999-rawtest"
 	rec := llmrec.Wrap(inner, pg, cfg.Model, "raw-test-profile", "", "", func() bool { return true })
 
-	// Clean up whatever this test writes, whether or not it passes. Must be a
-	// defer registered after `defer m.Close()` (LIFO puts it first) — a
-	// t.Cleanup would run after the manager already closed the pool.
+	// Clean up whatever this test writes, whether or not it passes. Keep this a
+	// defer: defers run before t.Cleanup, so the DB cleanup executes while the
+	// manager's pool is still open (m.Close is registered via t.Cleanup).
 	defer func() {
 		if _, err := pg.Exec(`DELETE FROM llm_records WHERE session_id = $1`, session); err != nil {
 			t.Logf("cleanup: %v", err)
