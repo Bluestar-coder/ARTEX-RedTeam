@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -96,32 +98,44 @@ func (p *ActiveProvider) Run(ctx context.Context, req Request) ([]Record, error)
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
+	seedIsIP := net.ParseIP(seed) != nil
+	seedType := TypeRootDomain
+	if seedIsIP {
+		seedType = TypeIP
+	}
 	out := []Record{{
-		Type: TypeRootDomain, Value: seed, Parent: seed,
+		Type: seedType, Value: seed, Parent: seed,
 		Source: "active:seed", ObservedAt: now, RawRef: "seed",
 	}}
 
 	candidates := map[string]string{seed: "active:seed"}
 
-	// 1) Certificate transparency (backend order is configurable; failures fall
-	// through to the next backend, and all-failed falls back to the dictionary).
+	// CT and the dictionary only make sense for a registrable DNS name. An IP
+	// literal or a single-label host (localhost) is probed directly; appending
+	// dictionary words to it would only create nonsense candidates.
+	dnsSeed := !seedIsIP && strings.Contains(seed, ".")
 	ctFirst := map[string]time.Time{}
-	if names, backend, err := p.enumerateCT(ctx, seed); err != nil {
-		logProviderf(p.Name(), "所有 CT 后端均失败（降级，继续用内置字典）: %v", err)
-	} else {
-		src := "active:ct:" + backend
-		for _, n := range names {
-			if !n.FirstSeen.IsZero() {
-				ctFirst[n.Name] = n.FirstSeen
+	if dnsSeed {
+		// 1) Certificate transparency (backend order is configurable; failures
+		// fall through to the next backend, and all-failed falls back to the
+		// dictionary).
+		if names, backend, err := p.enumerateCT(ctx, seed); err != nil {
+			logProviderf(p.Name(), "所有 CT 后端均失败（降级，继续用内置字典）: %v", err)
+		} else {
+			src := "active:ct:" + backend
+			for _, n := range names {
+				if !n.FirstSeen.IsZero() {
+					ctFirst[n.Name] = n.FirstSeen
+				}
+				p.addCandidate(candidates, req.Scope, n.Name, src, now, &out)
 			}
-			p.addCandidate(candidates, req.Scope, n.Name, src, now, &out)
 		}
-	}
 
-	// 2) Tiny built-in dictionary (allowed "CT logs + built-in dictionary" option).
-	for _, word := range p.wordlist {
-		host := strings.ToLower(strings.TrimSpace(word)) + "." + seed
-		p.addCandidate(candidates, req.Scope, host, "active:dict", now, &out)
+		// 2) Tiny built-in dictionary (allowed "CT logs + built-in dictionary").
+		for _, word := range p.wordlist {
+			host := strings.ToLower(strings.TrimSpace(word)) + "." + seed
+			p.addCandidate(candidates, req.Scope, host, "active:dict", now, &out)
+		}
 	}
 
 	// 3) Concurrent HTTP probe (bounded worker pool).
@@ -153,7 +167,7 @@ func (p *ActiveProvider) Run(ctx context.Context, req Request) ([]Record, error)
 			case <-ctx.Done():
 				return
 			}
-			res, alive := p.probe(ctx, job.host)
+			res, alive := p.probeHost(ctx, job.host, req.Scope.SeedPort)
 			ips := p.resolve(ctx, job.host)
 			mu.Lock()
 			defer mu.Unlock()
@@ -189,7 +203,7 @@ func (p *ActiveProvider) Run(ctx context.Context, req Request) ([]Record, error)
 		}(job)
 	}
 	wg.Wait()
-	return out, nil
+	return foldWildcardRecords(out, seed), nil
 }
 
 // addCandidate scope-checks a candidate before it can ever be probed. Out-of-
@@ -230,8 +244,26 @@ func (p *ActiveProvider) enumerateCT(ctx context.Context, seed string) ([]CTName
 	return nil, "", fmt.Errorf("%s", strings.Join(errs, "; "))
 }
 
+// probeHost applies the seed port (host:port / URL input) and delegates to the
+// ordinary probe or the hermetic test hook. The hook sees the host:port form so
+// tests can assert that 127.0.0.1:3000 / [::1]:8080 keep their port.
+func (p *ActiveProvider) probeHost(ctx context.Context, host string, port int) (probeResult, bool) {
+	target := host
+	if port > 0 {
+		target = net.JoinHostPort(host, strconv.Itoa(port))
+	}
+	if p.probeFn != nil {
+		return p.probeFn(ctx, target)
+	}
+	return p.probeTarget(ctx, target)
+}
+
 // probe tries HTTPS then HTTP and extracts status/title/favicon/technologies.
 func (p *ActiveProvider) probe(ctx context.Context, host string) (probeResult, bool) {
+	return p.probeTarget(ctx, host)
+}
+
+func (p *ActiveProvider) probeTarget(ctx context.Context, host string) (probeResult, bool) {
 	if p.probeFn != nil {
 		return p.probeFn(ctx, host)
 	}
@@ -244,10 +276,18 @@ func (p *ActiveProvider) probe(ctx context.Context, host string) (probeResult, b
 	return probeResult{}, false
 }
 
+// hostForURL brackets a bare IPv6 literal; host:port and IPv4 are unchanged.
+func hostForURL(host string) string {
+	if strings.HasPrefix(host, "[") || net.ParseIP(host) == nil {
+		return host
+	}
+	return "[" + host + "]"
+}
+
 func (p *ActiveProvider) probeScheme(parent context.Context, scheme, host string) (probeResult, bool) {
 	ctx, cancel := context.WithTimeout(parent, p.timeout)
 	defer cancel()
-	raw := scheme + "://" + host
+	raw := scheme + "://" + hostForURL(host)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, raw, nil)
 	if err != nil {
 		return probeResult{}, false

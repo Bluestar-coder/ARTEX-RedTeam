@@ -171,3 +171,94 @@ func TestActiveFallsBackToDictionaryWhenAllCTBackendsFail(t *testing.T) {
 		t.Fatalf("fallback records missing: %+v", res)
 	}
 }
+
+func TestActiveProviderAcceptsIPPortAndIPv6(t *testing.T) {
+	cases := []struct {
+		seed  string
+		probe string
+		typ   RecordType
+	}{
+		{"127.0.0.1:3000", "127.0.0.1:3000", TypeIP},
+		{"[::1]:8080", "[::1]:8080", TypeIP},
+		{"localhost", "localhost", TypeRootDomain},
+		{"example.com", "example.com", TypeRootDomain},
+	}
+	for _, c := range cases {
+		t.Run(c.seed, func(t *testing.T) {
+			var probed []string
+			p := &ActiveProvider{
+				concurrency: 1, timeout: time.Second,
+				probeFn: func(_ context.Context, host string) (probeResult, bool) {
+					probed = append(probed, host)
+					return probeResult{}, false
+				},
+				resolveFn: func(context.Context, string) []string { return nil },
+			}
+			sc, err := NewScope(c.seed, nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			res, err := p.Run(context.Background(), Request{Seed: c.seed, Scope: sc, Now: time.Now().UTC()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var sawSeed bool
+			for _, r := range res {
+				if r.Type == c.typ && r.Value == sc.Seed {
+					sawSeed = true
+				}
+			}
+			if !sawSeed {
+				t.Fatalf("missing seed record type=%s value=%s: %+v", c.typ, sc.Seed, res)
+			}
+			if len(probed) != 1 || probed[0] != c.probe {
+				t.Fatalf("probed=%v want exactly [%s]", probed, c.probe)
+			}
+		})
+	}
+}
+
+func TestFoldWildcardRecords(t *testing.T) {
+	status := 200
+	length := int64(1234)
+	svc := func(host string) Record {
+		return Record{Type: TypeService, Value: "http://" + host, Parent: "example.com",
+			StatusCode: &status, ContentLength: &length, Title: "Same App", FaviconMMH3: "42"}
+	}
+	records := []Record{
+		{Type: TypeRootDomain, Value: "example.com"},
+		{Type: TypeSubdomain, Value: "www.example.com", Parent: "example.com"},
+		svc("example.com"),
+		{Type: TypeSubdomain, Value: "api.example.com", Parent: "example.com"},
+		{Type: TypeSubdomain, Value: "admin.example.com", Parent: "example.com"},
+		svc("www.example.com"), svc("api.example.com"), svc("admin.example.com"),
+		{Type: TypeIP, Value: "192.0.2.10", Parent: "example.com"},
+		{Type: TypeIP, Value: "192.0.2.10", Parent: "www.example.com"},
+		{Type: TypeIP, Value: "192.0.2.10", Parent: "api.example.com"},
+		{Type: TypeIP, Value: "192.0.2.10", Parent: "admin.example.com"},
+	}
+	got := foldWildcardRecords(records, "example.com")
+	var subs, services, ips int
+	var aliases []string
+	for _, r := range got {
+		switch r.Type {
+		case TypeSubdomain:
+			subs++
+		case TypeService:
+			services++
+			if r.Extra != nil {
+				if a, ok := r.Extra["wildcard_aliases"].([]string); ok {
+					aliases = append(aliases, a...)
+				}
+			}
+		case TypeIP:
+			ips++
+		}
+	}
+	if subs != 0 || services != 1 || ips != 1 {
+		t.Fatalf("folded subs=%d services=%d ips=%d records=%+v (seed is the representative)", subs, services, ips, got)
+	}
+	if len(aliases) != 3 {
+		t.Fatalf("wildcard aliases=%v, want 3 folded hosts", aliases)
+	}
+}

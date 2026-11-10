@@ -839,7 +839,19 @@ func (s *Server) llmHost() string {
 func (s *Server) seed(t *Task, text string) {
 	scheme, host, port, ok := parseTarget(text)
 	if !ok {
-		log.Printf("[seed] task %s: 未能从 %q 解析出目标 host/IP，不创建站点（请手动配置 scope）", t.ID, text)
+		// The scope red line must never be silently empty. If the seed text has no
+		// parseable host/IP, persist it as a keyword scope for audit; run_recon's
+		// guard will still refuse to execute because no network scope exists.
+		if as := s.m.Assets(); as != nil {
+			if taskID, err := strconv.ParseInt(t.ID, 10, 64); err == nil {
+				if raw := strings.TrimSpace(text); raw != "" {
+					if _, err := as.AddAgentScope(taskID, "keyword", raw, "种子无法解析为域名/IP，仅记录原文供人工确认", "auto"); err != nil {
+						log.Printf("[seed] task %s: 记录种子 scope 失败: %v", t.ID, err)
+					}
+				}
+			}
+		}
+		log.Printf("[seed] task %s: 未能从 %q 解析出目标 host/IP；已记录 keyword scope，recon 将拒绝执行", t.ID, text)
 		return
 	}
 	// P0-1 guard: never treat the configured LLM gateway as a target.
@@ -855,6 +867,30 @@ func (s *Server) seed(t *Task, text string) {
 	var rootID int64
 	if as := s.m.Assets(); as != nil {
 		taskID, _ := strconv.ParseInt(t.ID, 10, 64)
+		// The task scope is the authorization boundary every provider checks. It
+		// must exist before the planner runs, not be patched in later by an LLM.
+		// A seed IP becomes an exact /32 (or /128) network scope; a hostname adds
+		// its registrable root plus the seed host itself as a subdomain scope.
+		if taskID > 0 {
+			if ip := net.ParseIP(host); ip != nil {
+				if _, err := as.AddAgentScope(taskID, "ip", ip.String(), "任务种子 IP", "auto"); err != nil {
+					log.Printf("[seed] task %s: 写入 IP scope 失败: %v", t.ID, err)
+				}
+			} else {
+				root, _ := db.RootDomain(host)
+				if root == "" {
+					root = host
+				}
+				if _, err := as.AddAgentScope(taskID, "root_domain", root, "任务种子根域", "auto"); err != nil {
+					log.Printf("[seed] task %s: 写入根域 scope 失败: %v", t.ID, err)
+				}
+				if !strings.EqualFold(root, host) {
+					if _, err := as.AddAgentScope(taskID, "subdomain", host, "任务种子主机", "auto"); err != nil {
+						log.Printf("[seed] task %s: 写入子域 scope 失败: %v", t.ID, err)
+					}
+				}
+			}
+		}
 		if net.ParseIP(host) != nil {
 			rootID, _ = as.UpsertIP(db.UpsertIPReq{IP: host, TaskID: taskID})
 		} else if scheme == "https" || scheme == "http" {

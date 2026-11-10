@@ -50,3 +50,48 @@ func TestScopeIPAndInvalid(t *testing.T) {
 		t.Fatal("empty seed should fail")
 	}
 }
+
+func TestScopeAcceptsIPPortLocalhostAndRejectsMalformed(t *testing.T) {
+	valid := []struct {
+		seed string
+		host string
+		port int
+	}{
+		{"127.0.0.1:3000", "127.0.0.1", 3000},
+		{"localhost", "localhost", 0},
+		{"localhost:8080", "localhost", 8080},
+		{"[::1]:8080", "::1", 8080},
+		{"example.com", "example.com", 0},
+		{"10.0.0.1", "10.0.0.1", 0},
+	}
+	for _, c := range valid {
+		sc, err := NewScope(c.seed, nil, nil)
+		if err != nil {
+			t.Errorf("NewScope(%q) failed: %v", c.seed, err)
+			continue
+		}
+		if sc.Seed != c.host || sc.SeedPort != c.port {
+			t.Errorf("NewScope(%q) seed=%q port=%d, want %q/%d", c.seed, sc.Seed, sc.SeedPort, c.host, c.port)
+		}
+		if ok, reason := sc.Allow(c.seed); !ok {
+			t.Errorf("Allow(%q) rejected: %s", c.seed, reason)
+		}
+	}
+	invalid := []string{"foo..bar", "http://", "", "999.999.999.999", "example.com:70000", "1.2.3.4:abc"}
+	for _, seed := range invalid {
+		if _, err := NewScope(seed, nil, nil); err == nil {
+			t.Errorf("NewScope(%q) accepted malformed host", seed)
+		}
+	}
+
+	sc, err := NewScope("127.0.0.1:3000", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := sc.Allow("127.0.0.1"); !ok {
+		t.Fatal("seed IP should be allowed without port")
+	}
+	if ok, reason := sc.Allow("10.0.0.1"); ok {
+		t.Fatalf("out-of-scope IP accepted: %s", reason)
+	}
+}
