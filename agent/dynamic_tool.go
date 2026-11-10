@@ -59,7 +59,7 @@ func (t *ToolSet) extractJSDynamic() actool.CoreTool {
 			if pageURL == "" {
 				pageURL = t.defaultDynamicPageURL(scope)
 			}
-			known := t.dynamicKnownPages(domain)
+			known := t.dynamicKnownPages(domain, pageURL)
 			provider := recon.NewDynamicProvider(cfg)
 			cap, capErr := provider.CapturePages(ctx, pageURL, scope, known)
 			if capErr != nil && len(cap.Records) == 0 {
@@ -95,8 +95,12 @@ func (t *ToolSet) extractJSDynamic() actool.CoreTool {
 					})
 				}
 				firstPage := pageURLs[0]
+				serviceHost := serviceAddress(firstPage)
+				if serviceHost == "" {
+					serviceHost = host
+				}
 				payload := map[string]any{
-					"summary":            fmt.Sprintf("动态接口: %s %s @%s", method, path, host),
+					"summary":            fmt.Sprintf("动态接口: %s %s @%s", method, path, serviceHost),
 					"detail":             fmt.Sprintf(" source=dynamic resource_type=%s params=%v headers=%v status=%v content_type=%v", extraString(extra, "resource_type"), params, headerNames, extra["status"], extraString(extra, "content_type")),
 					"evidence":           srcs[0].Snippet,
 					"confidence":         "observed",
@@ -104,14 +108,14 @@ func (t *ToolSet) extractJSDynamic() actool.CoreTool {
 					"extract_kind":       "js_interface",
 					"extract_confidence": "high",
 					"dynamic_observed":   true,
-					"host":               host, "hosts": []string{host}, "method": method, "path": path,
+					"host":               serviceHost, "service": serviceHost, "hosts": []string{serviceHost}, "method": method, "path": path,
 					"params": params, "query_params": queryParams, "header_names": headerNames,
 					"status": extra["status"], "content_type": extraString(extra, "content_type"),
 					"resource_type": extraString(extra, "resource_type"), "page_url": firstPage,
 					"page_urls": pageURLs,
 					"sources":   srcs, "source_count": len(srcs), "observed_at": now,
 				}
-				key := "jsif|" + host + "|" + method + "|" + strings.ToLower(path)
+				key := "jsif|" + serviceHost + "|" + method + "|" + strings.ToLower(path)
 				id, isNew, err := t.ts.UpsertExtractedFact(key, payload, nil)
 				if err != nil {
 					return actool.Errorf("写入动态接口 fact 失败: " + err.Error()), nil
@@ -218,10 +222,15 @@ func extraStrings(m map[string]any, key string) []string {
 // dynamicKnownPages collects same-host page-like paths from endpoint assets and
 // static interface facts. XHR/API-looking paths are excluded; keyword ranking is
 // done by the provider when it orders candidates.
-func (t *ToolSet) dynamicKnownPages(domain string) []string {
+func (t *ToolSet) dynamicKnownPages(domain, targetURL string) []string {
 	domain = strings.ToLower(strings.TrimSpace(domain))
-	if domain == "" {
+	if domain == "" && targetURL == "" {
 		return nil
+	}
+	targetService := serviceAddress(targetURL)
+	targetScheme := pageScheme(targetURL)
+	if targetScheme != "http" && targetScheme != "https" {
+		targetScheme = "https"
 	}
 	seen := map[string]bool{}
 	var out []string
@@ -230,7 +239,14 @@ func (t *ToolSet) dynamicKnownPages(domain string) []string {
 		if err != nil || u.Hostname() == "" {
 			return
 		}
-		if strings.ToLower(u.Hostname()) != domain || (u.Scheme != "http" && u.Scheme != "https") {
+		if targetService != "" {
+			if serviceAddress(raw) != targetService {
+				return
+			}
+		} else if strings.ToLower(u.Hostname()) != domain {
+			return
+		}
+		if u.Scheme != "http" && u.Scheme != "https" {
 			return
 		}
 		if isPageLikePath(u.Path) {
@@ -261,7 +277,11 @@ func (t *ToolSet) dynamicKnownPages(domain string) []string {
 					continue
 				}
 				host, _ := p["host"].(string)
-				if !strings.EqualFold(host, domain) {
+				if targetService != "" {
+					if !strings.EqualFold(host, targetService) {
+						continue
+					}
+				} else if !strings.EqualFold(host, domain) {
 					continue
 				}
 				if m, _ := p["method"].(string); m != "" && !strings.EqualFold(m, "GET") && !strings.EqualFold(m, "HEAD") {
@@ -271,7 +291,7 @@ func (t *ToolSet) dynamicKnownPages(domain string) []string {
 				if path == "" || !strings.HasPrefix(path, "/") {
 					continue
 				}
-				add("https://" + host + path)
+				add(targetScheme + "://" + host + path)
 			}
 		}
 	}

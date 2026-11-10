@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -56,7 +57,7 @@ func TestDeterministicReconPhaseProducesAssetsAndInterfaces(t *testing.T) {
 	if n := phaseInt(reconRes.Data["written"]); n == 0 {
 		t.Fatalf("recon wrote no assets: %+v", reconRes.Data)
 	}
-	staticRes := RunStaticPhase(context.Background(), d.Assets(), d.Exploration(task.ExplorationID), task.ID, "127.0.0.1")
+	staticRes := RunStaticPhase(context.Background(), d.Assets(), d.Exploration(task.ExplorationID), task.ID, "127.0.0.1", srv.URL)
 	if staticRes.Err != nil {
 		t.Fatalf("static phase: %v", staticRes.Err)
 	}
@@ -68,12 +69,21 @@ func TestDeterministicReconPhaseProducesAssetsAndInterfaces(t *testing.T) {
 		t.Fatal(err)
 	}
 	var jsInterfaces int
+	var sawServiceHost bool
 	for _, f := range facts {
-		if strings.Contains(string(f.Payload), "js_interface") {
-			jsInterfaces++
+		var p map[string]any
+		if json.Unmarshal(f.Payload, &p) != nil || p["extract_kind"] != "js_interface" {
+			continue
+		}
+		jsInterfaces++
+		if h, _ := p["host"].(string); strings.HasPrefix(h, "127.0.0.1:") {
+			sawServiceHost = true
 		}
 	}
 	if jsInterfaces == 0 {
 		t.Fatal("interface facts were not persisted")
+	}
+	if !sawServiceHost {
+		t.Fatal("interface fact did not carry host:port target identity")
 	}
 }

@@ -748,6 +748,8 @@ type createTaskReq struct {
 	SourceTaskIDs        []string `json:"source_task_ids,omitempty"`   // 仅直接、只读继承的来源任务
 	CompanyIDs           []int64  `json:"company_ids,omitempty"`       // 关联企业范围并快照关联当前企业资产;不复制资产或强制生成意图
 	TimeoutSeconds       int      `json:"timeout_seconds"`             // 任务级超时(秒);0/省略=不限时
+	ToolCallBudget       int      `json:"tool_call_budget"`            // 工具调用预算;0/省略=默认
+	LLMCallBudget        int      `json:"llm_call_budget"`             // LLM 调用预算;0/省略=默认
 	PlanHeartbeatSeconds int      `json:"plan_heartbeat_seconds"`      // planner 心跳触发间隔(秒);0/省略=默认600(10min);下限=默认=600,低于自动抬到600
 	SeedFirstIntent      *bool    `json:"seed_first_intent,omitempty"` // 创建时直接下发一条种子意图(内容=描述+目标),让 worker 免等首轮 planner 直接开跑;省略/null=默认关闭,走标准先规划再执行。显式传 true 才开(CTF 常一 work 解决时可省掉开跑前的 planner 轮)。
 	CoverageEnabled      *bool    `json:"coverage_enabled,omitempty"`  // 资产覆盖度功能;省略/null=默认开(true)。false=关闭覆盖度计算/展示/自动累积范围+隐藏 add_task_scope/list_untested_assets。company 关联不受影响。
@@ -837,8 +839,8 @@ func (s *Server) llmHost() string {
 }
 
 func (s *Server) seed(t *Task, text string) {
-	scheme, host, port, ok := parseTarget(text)
-	if !ok {
+	targets := parseTaskTargets(text)
+	if len(targets) == 0 {
 		// The scope red line must never be silently empty. If the seed text has no
 		// parseable host/IP, persist it as a keyword scope for audit; run_recon's
 		// guard will still refuse to execute because no network scope exists.
@@ -854,24 +856,33 @@ func (s *Server) seed(t *Task, text string) {
 		log.Printf("[seed] task %s: 未能从 %q 解析出目标 host/IP；已记录 keyword scope，recon 将拒绝执行", t.ID, text)
 		return
 	}
-	// P0-1 guard: never treat the configured LLM gateway as a target.
-	if gw := s.llmHost(); gw != "" && host == gw {
-		log.Printf("[seed] task %s: 目标 %q 是 LLM 网关，拒绝作为渗透目标", t.ID, host)
-		return
-	}
+	as := s.m.Assets()
+	taskID, _ := strconv.ParseInt(t.ID, 10, 64)
+	seen := map[string]bool{}
+	for _, target := range targets {
+		host := target.host
+		if gw := s.llmHost(); gw != "" && strings.EqualFold(host, gw) {
+			log.Printf("[seed] task %s: 目标 %q 是 LLM 网关，拒绝作为渗透目标", t.ID, host)
+			continue
+		}
+		scheme := target.scheme
+		if scheme != "http" && scheme != "https" {
+			scheme = "http"
+		}
+		port := target.port
+		u := scheme + "://" + host
+		if port > 0 && !(scheme == "https" && port == 443) && !(scheme == "http" && port == 80) {
+			u += ":" + strconv.Itoa(port)
+		}
+		key := u
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
 
-	u := scheme + "://" + host
-	if !(scheme == "https" && port == 443) && !(scheme == "http" && port == 80) {
-		u += ":" + strconv.Itoa(port)
-	}
-	var rootID int64
-	if as := s.m.Assets(); as != nil {
-		taskID, _ := strconv.ParseInt(t.ID, 10, 64)
-		// The task scope is the authorization boundary every provider checks. It
-		// must exist before the planner runs, not be patched in later by an LLM.
-		// A seed IP becomes an exact /32 (or /128) network scope; a hostname adds
-		// its registrable root plus the seed host itself as a subdomain scope.
-		if taskID > 0 {
+		if as != nil && taskID > 0 {
+			// Every network seed owns a scope row. A hostname gets its registrable
+			// root plus the seed host itself; an IP becomes an exact /32 or /128.
 			if ip := net.ParseIP(host); ip != nil {
 				if _, err := as.AddAgentScope(taskID, "ip", ip.String(), "任务种子 IP", "auto"); err != nil {
 					log.Printf("[seed] task %s: 写入 IP scope 失败: %v", t.ID, err)
@@ -891,28 +902,28 @@ func (s *Server) seed(t *Task, text string) {
 				}
 			}
 		}
-		if net.ParseIP(host) != nil {
-			rootID, _ = as.UpsertIP(db.UpsertIPReq{IP: host, TaskID: taskID})
-		} else if scheme == "https" || scheme == "http" {
-			rootID, _ = as.UpsertHTTPService(db.UpsertHTTPServiceReq{URL: u, TaskID: taskID})
-		} else {
-			rootID, _ = as.UpsertRootDomain(db.UpsertRootDomainReq{Domain: host, TaskID: taskID})
+
+		var rootID int64
+		if as != nil {
+			if net.ParseIP(host) != nil {
+				rootID, _ = as.UpsertIP(db.UpsertIPReq{IP: host, TaskID: taskID})
+			} else if scheme == "https" || scheme == "http" {
+				rootID, _ = as.UpsertHTTPService(db.UpsertHTTPServiceReq{URL: u, TaskID: taskID})
+			} else {
+				rootID, _ = as.UpsertRootDomain(db.UpsertRootDomainReq{Domain: host, TaskID: taskID})
+			}
+			if rootID > 0 {
+				_ = as.SetTaskAssetSource(taskID, rootID, "task", "由任务描述或目标初始化", nil)
+			}
 		}
-		if rootID > 0 {
-			_ = as.SetTaskAssetSource(taskID, rootID, "task", "由任务描述或目标初始化", nil)
+		// anchor each seeded asset to this task's begin root for provenance.
+		if rootID > 0 && t.Store != nil {
+			if begin, _ := t.Store.OriginFactID(); begin > 0 {
+				_ = t.Store.Anchor(begin, rootID)
+			}
 		}
+		log.Printf("[seed] task %s: 目标站点 %s", t.ID, u)
 	}
-	// anchor the seeded assets to this task's begin root as lineage/provenance
-	// (the asset graph is global and shared; anchoring no longer gates reads).
-	if rootID > 0 {
-		if begin, _ := t.Store.OriginFactID(); begin > 0 {
-			_ = t.Store.Anchor(begin, rootID)
-		}
-	}
-	log.Printf("[seed] task %s: 目标站点 %s", t.ID, u)
-	// 不在这里 Notify:首轮是否触发统一由 engine.Run 的 HasActiveIntent 决定(种子意图任务
-	// 跳过首轮)。seed 早于 Run 执行,若在此 Notify 会 buffered 到通道、被 plannerLoop 启动时
-	// 消费掉而绕过 Run 的门控 → 种子任务仍误触发首轮。
 }
 
 // seedFirstIntent writes ONE open intent (summary = 描述+目标) into the task's

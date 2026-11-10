@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 
@@ -1316,6 +1317,13 @@ func (t *ToolSet) recordOneFact(it factItem, defaultIntent int64) (int64, error)
 			return 0, fmt.Errorf("intent_id 必须是本任务的意图（关联任务意图只读）")
 		}
 	}
+	// Every fact carries a target identity. Derive host:port from the fact's
+	// assets (preferred), else the producing intent's asset_ids. Old facts may
+	// still have a bare host or no host; new writes are service-scoped.
+	if host := t.factTargetHost(it.AssetIDs, intent); host != "" {
+		payload["host"] = host
+		payload["service"] = host
+	}
 	// a fact is its OWN node kind (distinct from a vuln finding).
 	id, err := t.ts.AddNode(db.KindFact, payload, 5, "confirmed", t.worker, pidList(it.AssetIDs))
 	if err != nil {
@@ -1326,6 +1334,59 @@ func (t *ToolSet) recordOneFact(it factItem, defaultIntent int64) (int64, error)
 	}
 	t.writes.Facts++
 	return id, nil
+}
+
+// factTargetHost returns host:port for a fact's target. It never guesses across
+// ports: asset URLs/port fields are authoritative; if none is available the fact
+// remains host-less (legacy behavior) rather than inventing a target.
+func (t *ToolSet) factTargetHost(ids []json.RawMessage, intent int64) string {
+	if t.as == nil {
+		return ""
+	}
+	assetIDs := pidList(ids)
+	if len(assetIDs) == 0 && intent > 0 && t.ts != nil {
+		if node, err := t.ts.GetNode(intent); err == nil && node != nil {
+			var p map[string]any
+			if json.Unmarshal(node.Payload, &p) == nil {
+				if raw, ok := p["asset_ids"].([]any); ok {
+					for _, v := range raw {
+						if n, ok := v.(float64); ok && n > 0 {
+							assetIDs = append(assetIDs, int64(n))
+						}
+					}
+				}
+			}
+		}
+	}
+	if len(assetIDs) == 0 {
+		return ""
+	}
+	assets, err := t.as.GetByIDs(assetIDs)
+	if err != nil || len(assets) == 0 {
+		return ""
+	}
+	for _, a := range assets {
+		if a == nil {
+			continue
+		}
+		if a.URL != "" {
+			if h := serviceAddress(a.URL); h != "" {
+				return h
+			}
+		}
+		host := strings.TrimSpace(a.Domain)
+		if host == "" {
+			host = strings.TrimSpace(a.IP)
+		}
+		if host == "" {
+			continue
+		}
+		if a.Port != nil && *a.Port > 0 {
+			return net.JoinHostPort(host, strconv.Itoa(*a.Port))
+		}
+		return host
+	}
+	return ""
 }
 
 func (t *ToolSet) recordFact() actool.CoreTool {
