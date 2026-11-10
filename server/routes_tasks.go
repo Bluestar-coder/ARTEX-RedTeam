@@ -545,7 +545,39 @@ func (s *Server) getTask(w http.ResponseWriter, r *http.Request) {
 	dto := taskDTO(t, s.resolvedTaskStatus(t))
 	archiveBlockers, _ := s.m.PG().TaskArchiveBlockers()
 	applyTaskArchiveBlocker(&dto, archiveBlockers)
+	s.applyTaskListMetrics(&dto, t)
 	writeOK(w, dto)
+}
+
+// applyTaskListMetrics keeps the single-task DTO consistent with the task-list
+// DTO. Previously /api/tasks/{id} returned goals_total=0 even when goal nodes
+// existed because only listTasks() joined the aggregate counters.
+func (s *Server) applyTaskListMetrics(dto *TaskDTO, t *Task) {
+	if dto == nil || t == nil {
+		return
+	}
+	metrics, err := s.m.PG().TaskListMetricsAll()
+	if err != nil {
+		return
+	}
+	metric, ok := metrics[t.ExpID]
+	if !ok {
+		return
+	}
+	dto.Tokens = tokenTotalDTO(metric.Tokens)
+	dto.LastActivity = metric.LastActivity
+	if live := s.engine.LastActivity(t.ID); live > dto.LastActivity {
+		dto.LastActivity = live
+	}
+	dto.GoalsTotal = metric.Goals.Total
+	dto.GoalsMet = metric.Goals.Met
+	dto.InFlight = metric.RunningIntents
+	dto.Findings = FindingSeverityDTO{
+		Critical: metric.Findings.Critical,
+		High:     metric.Findings.High,
+		Medium:   metric.Findings.Medium,
+		Low:      metric.Findings.Low,
+	}
 }
 
 // taskCoverage returns a task's rough asset test coverage (denominator/tested/backlog).

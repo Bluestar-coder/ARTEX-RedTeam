@@ -38,12 +38,14 @@ var techSignatures = []techSignature{
 	{name: "Node.js", headers: []string{"x-powered-by:node"}},
 	{name: "WordPress", body: []string{"wp-content/", "wp-includes/", `name="generator" content="wordpress`}},
 	{name: "jQuery", body: []string{"jquery.min.js", "jquery.js"}},
+	{name: "Angular", body: []string{"<app-root", "ng-version", "_ngcontent", "ng-app="}},
 	{name: "React", body: []string{"data-reactroot", "__react", "react-dom"}},
 	{name: "Vue", body: []string{"data-v-", "__vue__", "vue.js"}},
 	{name: "Nuxt", body: []string{"__nuxt", "/_nuxt/"}},
 	{name: "Bootstrap", body: []string{"bootstrap.min.css", "bootstrap.css"}},
 	{name: "Element UI", body: []string{"element-ui", "el-button"}},
 	{name: "Shiro", headers: []string{"set-cookie:rememberme=deleteMe"}},
+	{name: "Spring", headers: []string{"x-application-context:"}, body: []string{"whitelabel error page"}},
 }
 
 func detectTechnologies(h http.Header, body []byte) []string {

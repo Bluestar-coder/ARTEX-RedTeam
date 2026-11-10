@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -55,7 +57,7 @@ func (t *ToolSet) extractJSDynamic() actool.CoreTool {
 			}
 			pageURL := strings.TrimSpace(a.URL)
 			if pageURL == "" {
-				pageURL = "https://" + domain + "/"
+				pageURL = t.defaultDynamicPageURL(scope)
 			}
 			known := t.dynamicKnownPages(domain)
 			provider := recon.NewDynamicProvider(cfg)
@@ -124,7 +126,8 @@ func (t *ToolSet) extractJSDynamic() actool.CoreTool {
 				}
 			}
 			result := map[string]any{
-				"page": cap.PageURL, "pages": cap.PagesVisited, "pages_count": cap.Pages,
+				"page": cap.PageURL, "actual_page": pageURL, "scheme": pageScheme(pageURL),
+				"pages": cap.PagesVisited, "pages_count": cap.Pages,
 				"page_errors": cap.PageErrors, "known_pages": len(known),
 				"browser": cap.BrowserPath, "proxy": cap.Proxy,
 				"observed_requests": cap.Observed, "interfaces": len(cap.Records),
@@ -137,6 +140,56 @@ func (t *ToolSet) extractJSDynamic() actool.CoreTool {
 			return jsonResult(result)
 		},
 	)
+}
+
+// defaultDynamicPageURL chooses the page scheme from what we actually observed:
+// an existing HTTP service for this host is authoritative (Juice Shop on
+// http://juice.localhost must not be forced to HTTPS); otherwise an explicit
+// host:port seed uses that port (HTTP unless https was explicitly supplied),
+// and a bare domain falls back to HTTPS.
+func (t *ToolSet) defaultDynamicPageURL(scope recon.Scope) string {
+	host := scope.Seed
+	if host == "" {
+		return "https://" + host + "/"
+	}
+	if t.as != nil {
+		if services, err := t.as.ListHTTPServicesForJS(200); err == nil {
+			for _, svc := range services {
+				u, err := url.Parse(strings.TrimSpace(svc.URL))
+				if err != nil || u.Hostname() == "" {
+					continue
+				}
+				if strings.EqualFold(u.Hostname(), host) {
+					u.Path = "/"
+					u.RawQuery = ""
+					u.Fragment = ""
+					return u.String()
+				}
+			}
+		}
+	}
+	scheme := strings.ToLower(scope.SeedScheme)
+	if scheme != "http" && scheme != "https" {
+		scheme = "https"
+		if scope.SeedPort > 0 && scope.SeedPort != 443 {
+			scheme = "http"
+		}
+	}
+	urlHost := host
+	if scope.SeedPort > 0 {
+		urlHost = net.JoinHostPort(host, strconv.Itoa(scope.SeedPort))
+	} else if strings.Contains(host, ":") {
+		urlHost = "[" + host + "]"
+	}
+	return scheme + "://" + urlHost + "/"
+}
+
+func pageScheme(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return u.Scheme
 }
 
 func extraString(m map[string]any, key string) string {

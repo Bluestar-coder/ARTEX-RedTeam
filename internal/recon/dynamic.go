@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -161,14 +162,52 @@ type BlockedRequest struct {
 	Reason string `json:"reason"`
 }
 
-// Run implements Provider. The seed is expanded to https://<seed>/ only.
+// Run implements Provider. The seed URL uses the explicit scheme/port when the
+// caller supplied one; otherwise it starts with HTTPS and falls back to HTTP
+// when the page cannot load (a local Juice Shop or an internal HTTP service
+// must not fail just because it has no certificate).
 func (p *DynamicProvider) Run(ctx context.Context, req Request) ([]Record, error) {
 	if !p.cfg.Enabled {
 		return nil, fmt.Errorf("dynamic provider disabled (set RECON_DYNAMIC_ENABLED=1)")
 	}
-	pageURL := "https://" + req.Seed + "/"
-	cap, err := p.CapturePages(ctx, pageURL, req.Scope, nil)
-	return cap.Records, err
+	host := req.Scope.Seed
+	if host == "" {
+		host = req.Seed
+	}
+	port := req.Scope.SeedPort
+	schemes := []string{"https", "http"}
+	if req.Scope.SeedScheme == "http" || req.Scope.SeedScheme == "https" {
+		schemes = []string{req.Scope.SeedScheme}
+	} else if port > 0 && port != 443 ||
+		host == "localhost" || strings.HasSuffix(host, ".localhost") ||
+		strings.HasSuffix(host, ".local") || strings.HasSuffix(host, ".internal") {
+		// Local/internal targets are overwhelmingly HTTP and the failed HTTPS
+		// attempt costs a page timeout; try HTTP first, HTTPS as fallback.
+		schemes = []string{"http", "https"}
+	}
+	urlHost := host
+	if port > 0 {
+		urlHost = net.JoinHostPort(host, strconv.Itoa(port))
+	} else if strings.Contains(host, ":") {
+		urlHost = "[" + host + "]"
+	}
+	var lastErr error
+	for i, scheme := range schemes {
+		pageURL := scheme + "://" + urlHost + "/"
+		cap, err := p.CapturePages(ctx, pageURL, req.Scope, nil)
+		if err == nil {
+			return cap.Records, nil
+		}
+		lastErr = err
+		if i == len(schemes)-1 {
+			break
+		}
+		log.Printf("[recon] provider=dynamic page=%s scheme failed (%v), retrying %s", pageURL, err, schemes[i+1])
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("dynamic capture failed")
+	}
+	return nil, lastErr
 }
 
 // Capture loads just the home page (backwards-compatible single-page path).

@@ -68,19 +68,40 @@ func (t *ToolSet) runRecon() actool.CoreTool {
 				return actool.Errorf("没有启用的 recon provider（检查 ARTEX_REDTEAM_RECON_ENABLED）"), nil
 			}
 			res := recon.Run(ctx, registry, domain, scope, cfg)
-			written, err := t.as.UpsertReconAssets(t.taskID, toDBReconAssets(res.Records))
+			// The dynamic provider (when enabled) emits TypeInterface records.
+			// Interface facts belong to extract_js/extract_js_dynamic, not the
+			// asset graph; persisting them through UpsertReconAssets would reject
+			// the whole batch and silently drop the service/subdomain records too.
+			assetRecords := assetOnlyReconRecords(res.Records)
+			written, err := t.as.UpsertReconAssets(t.taskID, toDBReconAssets(assetRecords))
 			if err != nil {
 				return actool.Errorf("recon 落库失败: " + err.Error()), nil
 			}
 			return jsonResult(map[string]any{
-				"seed":      res.Seed,
-				"records":   len(res.Records),
-				"written":   written,
-				"providers": res.Providers,
-				"rejected":  res.Rejected,
+				"seed":               res.Seed,
+				"records":            len(res.Records),
+				"asset_records":      len(assetRecords),
+				"interfaces_skipped": len(res.Records) - len(assetRecords),
+				"written":            written,
+				"providers":          res.Providers,
+				"rejected":           res.Rejected,
 			})
 		},
 	)
+}
+
+// assetOnlyReconRecords drops interface records that the dynamic provider can
+// emit during run_recon. They are facts, not assets; UpsertReconAssets rejects
+// unknown asset types, which would drop the whole batch.
+func assetOnlyReconRecords(records []recon.Record) []recon.Record {
+	out := make([]recon.Record, 0, len(records))
+	for _, rec := range records {
+		if rec.Type == recon.TypeInterface {
+			continue
+		}
+		out = append(out, rec)
+	}
+	return out
 }
 
 // toDBReconAssets converts provider records into the DB batch entry shape.
