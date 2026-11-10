@@ -46,6 +46,12 @@ func (s *Server) startTaskEngine(t *Task) {
 	if ctx.Err() != nil || s.engine.IsDeleting(t.ID) {
 		return
 	}
+	// Deterministic recon phase: assets/interfaces must exist before planner's
+	// first graph_overview. No LLM is involved and each step degrades independently.
+	s.runReconPrephase(ctx, t)
+	if ctx.Err() != nil || s.engine.IsDeleting(t.ID) {
+		return
+	}
 	s.engine.emitActivity(t, db.Activity{Worker: "planner", Kind: "round",
 		Summary: "第 0 轮目标拆解"})
 	goals := s.createGoals(ctx, t, func(r db.Activity) {
