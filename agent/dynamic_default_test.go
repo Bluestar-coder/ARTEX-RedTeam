@@ -24,11 +24,11 @@ func TestDefaultDynamicPageURLUsesObservedServiceScheme(t *testing.T) {
 		t.Fatalf("default page=%q, want observed http service", got)
 	}
 
-	ipScope, err := recon.NewScope("127.0.0.1:3000", nil, nil)
+	ipScope, err := recon.NewScope("p1-fallback.invalid:3000", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := tsx.defaultDynamicPageURL(ipScope); got != "http://127.0.0.1:3000/" {
+	if got := tsx.defaultDynamicPageURL(ipScope); got != "http://p1-fallback.invalid:3000/" {
 		t.Fatalf("default page=%q, want explicit host:port", got)
 	}
 }
