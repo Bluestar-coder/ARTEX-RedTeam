@@ -29,6 +29,7 @@ func (s *Server) launchTask(t *Task, seedText string, seedFirstIntent bool) {
 	if !s.engine.beginTaskOperation(t.ID) {
 		return
 	}
+	s.ensureGoalsSignal(t.ExpID)
 	s.seed(t, seedText)
 	if seedFirstIntent {
 		s.seedFirstIntent(t)
@@ -40,6 +41,7 @@ func (s *Server) launchTask(t *Task, seedText string, seedFirstIntent bool) {
 }
 
 func (s *Server) startTaskEngine(t *Task) {
+	defer s.markGoalsReady(t.ExpID)
 	ctx := s.engine.execContextFor(s.ctx, t.ID)
 	if ctx.Err() != nil || s.engine.IsDeleting(t.ID) {
 		return

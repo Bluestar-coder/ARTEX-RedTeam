@@ -121,6 +121,13 @@ type Server struct {
 	taskAgentMu sync.Mutex
 	taskAgents  map[string]*taskAgentBundle
 
+	// goalsReady is a test-observable signal: closed once the bootstrap goal
+	// seeding goroutine has finished (decomposed or fallback). It lets tests wait
+	// on the actual seeding event instead of a fixed sleep. Production callers do
+	// not use it.
+	goalsMu    sync.Mutex
+	goalsReady map[int64]chan struct{}
+
 	// Cold task archives run through one persistent FIFO worker. The buffered wake
 	// channel coalesces enqueue bursts; the database remains the source of truth.
 	archiveWake chan struct{}
@@ -157,7 +164,8 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 		triggerActive: map[string]int{}, triggerCfg: map[string]triggerBehavior{},
 		profChatAgents: map[int64]*agent.ChatAgent{},
 		provByProfile:  map[int64]*provEntry{}, llmHealth: newLLMHealthRegistry(m.pg),
-		taskAgents: map[string]*taskAgentBundle{}, archiveWake: make(chan struct{}, 1)}
+		taskAgents: map[string]*taskAgentBundle{}, archiveWake: make(chan struct{}, 1),
+		goalsReady: map[int64]chan struct{}{}}
 	s.initSideQuestions()
 	// 熔断阈值/冷却是失败路径上的热参数，启动时把全局重试策略推给 Registry 一次；
 	// 之后每次保存策略再推一次（saveLLMRetryPolicy）。
