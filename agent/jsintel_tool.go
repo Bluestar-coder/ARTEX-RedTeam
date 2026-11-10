@@ -104,9 +104,19 @@ func (t *ToolSet) extractJS() actool.CoreTool {
 				}
 				return nil
 			}
-			for _, itf := range agg.Interfaces {
+			for _, merged := range mergeStaticInterfacesByPath(agg.Interfaces, domain) {
+				itf := merged.itf
+				hosts := merged.hosts
+				var anchors []int64
+				for _, h := range hosts {
+					anchors = append(anchors, anchorsByHost[h]...)
+				}
+				summaryHost := itf.Host
+				if len(hosts) > 1 {
+					summaryHost = fmt.Sprintf("%s (+%d hosts)", itf.Host, len(hosts)-1)
+				}
 				payload := map[string]any{
-					"summary":      fmt.Sprintf("接口: %s %s @%s", itf.Method, itf.Path, itf.Host),
+					"summary":      fmt.Sprintf("接口: %s %s @%s", itf.Method, itf.Path, summaryHost),
 					"detail":       fmt.Sprintf(" params=%v tags=%v rule=%s sources=%d", itf.Params, itf.Tags, itf.Rule, len(itf.Sources)),
 					"evidence":     firstSnippet(itf.Sources),
 					"confidence":   "observed",
@@ -117,7 +127,7 @@ func (t *ToolSet) extractJS() actool.CoreTool {
 					"extract_confidence": string(itf.Confidence),
 					"sources":            itf.Sources, "source_count": len(itf.Sources), "observed_at": now,
 				}
-				if err := upsert("jsif|"+itf.Host+"|"+itf.Method+"|"+strings.ToLower(itf.Path), payload, anchorsByHost[itf.Host]); err != nil {
+				if err := upsert("jsif|"+itf.Host+"|"+itf.Method+"|"+strings.ToLower(itf.Path), payload, anchors); err != nil {
 					return actool.Errorf("写入接口 fact 失败: " + err.Error()), nil
 				}
 			}
@@ -173,6 +183,7 @@ func (t *ToolSet) jsIntelOverview(facts []*db.Node) map[string]any {
 	type ifaceFact struct {
 		ID              int64
 		Host            string
+		Hosts           []string
 		Method          string
 		Path            string
 		Params          []any
@@ -195,6 +206,16 @@ func (t *ToolSet) jsIntelOverview(facts []*db.Node) map[string]any {
 			host, _ := p["host"].(string)
 			byHost[host]++
 			f := ifaceFact{ID: n.ID, Host: host}
+			if hs, ok := p["hosts"].([]any); ok {
+				for _, h := range hs {
+					if s, ok := h.(string); ok && s != "" {
+						f.Hosts = append(f.Hosts, s)
+					}
+				}
+			}
+			if len(f.Hosts) == 0 {
+				f.Hosts = []string{host}
+			}
 			f.Method, _ = p["method"].(string)
 			f.Path, _ = p["path"].(string)
 			f.Confidence, _ = p["extract_confidence"].(string)
@@ -242,8 +263,13 @@ func (t *ToolSet) jsIntelOverview(facts []*db.Node) map[string]any {
 		if len(top) >= 5 {
 			break
 		}
+		// Low-confidence entries are counts, not planner attention. They remain
+		// in list_facts/node_detail but do not take the five top slots.
+		if f.Confidence != "high" && f.Confidence != "medium" {
+			continue
+		}
 		top = append(top, map[string]any{
-			"fact_id": f.ID, "host": f.Host, "method": f.Method, "path": f.Path,
+			"fact_id": f.ID, "host": f.Host, "hosts": f.Hosts, "method": f.Method, "path": f.Path,
 			"params": f.Params, "tags": f.Tags, "source_count": f.Sources,
 			"confidence": f.Confidence, "evidence_sources": f.EvidenceSources,
 			"note": "node_detail(fact_id) 查看原始片段与出处",

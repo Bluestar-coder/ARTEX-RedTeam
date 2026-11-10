@@ -102,7 +102,7 @@ func (t *ToolSet) extractJSDynamic() actool.CoreTool {
 					"extract_kind":       "js_interface",
 					"extract_confidence": "high",
 					"dynamic_observed":   true,
-					"host":               host, "method": method, "path": path,
+					"host":               host, "hosts": []string{host}, "method": method, "path": path,
 					"params": params, "query_params": queryParams, "header_names": headerNames,
 					"status": extra["status"], "content_type": extraString(extra, "content_type"),
 					"resource_type": extraString(extra, "resource_type"), "page_url": firstPage,

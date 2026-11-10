@@ -150,3 +150,19 @@ func contains(list []string, want string) bool {
 	}
 	return false
 }
+
+func TestExtractDropsExternalAndProtocolRelativeInterfaces(t *testing.T) {
+	res := Extract("app.example.com", "http://app.example.com/", "http://app.example.com/app.js", `
+fetch("/api/local", {method: "GET"});
+fetch("//api.ipinfodb.com/v3/ip-country/");
+fetch("https://cdn.other.example/lib.js");
+`)
+	if len(res.Interfaces) == 0 {
+		t.Fatal("local API was dropped")
+	}
+	for _, itf := range res.Interfaces {
+		if itf.Path != "/api/local" || itf.Host != "app.example.com" {
+			t.Fatalf("unexpected interface (external filter failed): %+v", itf)
+		}
+	}
+}

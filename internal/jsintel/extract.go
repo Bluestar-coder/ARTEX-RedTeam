@@ -59,6 +59,12 @@ func Extract(host, pageURL, scriptURL, text string) Result {
 	}
 	seenIface := map[string]*Interface{}
 	addIface := func(c interfaceCandidate) {
+		// Interfaces are the target's own API surface. Third-party URLs found in
+		// bundled JS (//api.ipinfodb.com/..., https://cdn.example/...) are not
+		// interfaces of this host and must not become facts.
+		if c.host == "" || c.path == "" || !strings.EqualFold(c.host, host) {
+			return
+		}
 		if c.confidence == "" {
 			c.confidence = ConfidenceLow
 		}
@@ -433,6 +439,17 @@ func normalizePath(defaultHost, raw string) (host, path string, params, template
 		return defaultHost, "", nil, nil
 	}
 	host = defaultHost
+	if strings.HasPrefix(raw, "//") {
+		// Protocol-relative URL: parse its authority. If it points at another
+		// host, this is an external call and should be dropped before it becomes
+		// an interface fact.
+		if u, err := url.Parse("http:" + raw); err == nil && u.Hostname() != "" {
+			if !strings.EqualFold(u.Hostname(), defaultHost) {
+				return "", "", nil, nil
+			}
+			raw = u.Path
+		}
+	}
 	if strings.Contains(raw, "://") {
 		if u, err := url.Parse(raw); err == nil && u.Host != "" {
 			host = strings.ToLower(u.Hostname())

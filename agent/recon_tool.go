@@ -42,6 +42,22 @@ func (t *ToolSet) runRecon() actool.CoreTool {
 			if domain == "" {
 				return actool.Errorf("domain 必填"), nil
 			}
+			if t.taskID > 0 {
+				scopes, err := t.as.ListTaskScope(t.taskID)
+				if err != nil {
+					return actool.Errorf("读取任务 scope 失败: " + err.Error()), nil
+				}
+				networkScope := false
+				for _, sc := range scopes {
+					switch sc.Kind {
+					case "root_domain", "subdomain", "ip", "cidr":
+						networkScope = true
+					}
+				}
+				if !networkScope {
+					return actool.Errorf("任务没有可用网络 scope（root_domain/subdomain/ip/cidr），拒绝执行 recon；请先在任务范围里添加目标"), nil
+				}
+			}
 			scope, err := recon.NewScope(domain, nil, a.Exclude)
 			if err != nil {
 				return actool.Errorf(err.Error()), nil

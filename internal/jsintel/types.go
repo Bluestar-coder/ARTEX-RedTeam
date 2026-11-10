@@ -23,6 +23,19 @@ const (
 	ConfidenceLow    Confidence = "low"    // bare path suffix or method unknown
 )
 
+// ConfidenceRank returns a numeric ordering for confidence values (low=1,
+// medium=2, high=3); unknown/empty counts as low.
+func ConfidenceRank(c Confidence) int {
+	switch c {
+	case ConfidenceHigh:
+		return 3
+	case ConfidenceMedium:
+		return 2
+	default:
+		return 1
+	}
+}
+
 // Interface is one extracted API endpoint.
 type Interface struct {
 	Host       string      `json:"host"`
