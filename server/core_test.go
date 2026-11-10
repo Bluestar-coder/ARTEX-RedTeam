@@ -21,7 +21,13 @@ func TestCoreTaskLifecyclePG(t *testing.T) {
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) — skipping", err)
 	}
-	defer m.Close()
+	// Register manager close BEFORE newTestServer's cleanup so LIFO stops the
+	// server/engine first, then closes PostgreSQL. This test shares the package
+	// test schema with every other server test.
+	t.Cleanup(func() { _ = m.Close() })
+	// This test only asserts that a task gets goal nodes. It must not depend on
+	// LLM/concurrency settings left behind by earlier tests in the shared schema.
+	isolateGoalSeeding(t, m)
 	td := t.TempDir()
 	s := newTestServer(t, m, td, td, td)
 	h := s.Handler()
@@ -71,18 +77,8 @@ func TestCoreTaskLifecyclePG(t *testing.T) {
 		t.Fatalf("bad task payload: %v", out)
 	}
 
-	// the exploration owns goal node(s) — goal seeding is async, poll briefly
-	var goals []*db.Node
-	for i := 0; i < 30; i++ {
-		goals, err = m.pg.Exploration(expID).ListByKind("goal", 10)
-		if err != nil || len(goals) > 0 {
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	if err != nil {
-		t.Fatal(err)
-	}
+	// Wait on the server's actual goal-seeding signal, not a fixed sleep.
+	goals := waitGoalNodes(t, s, m, expID)
 	if len(goals) < 1 {
 		t.Fatalf("expected goal nodes seeded, got %d", len(goals))
 	}
