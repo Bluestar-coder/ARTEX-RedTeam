@@ -18,10 +18,15 @@ func TestListAssetsSourceFilterAndSources(t *testing.T) {
 	if err != nil {
 		t.Skipf("postgres unavailable (%v)", err)
 	}
-	defer m.Close()
+	t.Cleanup(func() { _ = m.Close() })
 	stamp := time.Now().UnixNano()
 	parent := fmt.Sprintf("src-api-%d.example.com", stamp)
 	sub := "www." + parent
+	// The shared package schema survives -count repeats; remove this test's
+	// assets so the next iteration sees only its own row.
+	t.Cleanup(func() {
+		_, _ = m.pg.Exec(`DELETE FROM assets WHERE domain IN ($1,$2)`, parent, sub)
+	})
 	now := time.Now().UTC().Truncate(time.Second)
 	_, err = m.pg.Assets().UpsertReconAssets(0, []db.ReconAsset{
 		{Type: "subdomain", Value: sub, Parent: parent, Source: "active:ct", ObservedAt: now},
